@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'dashboard_screen.dart';
+import 'emis_webview_screen.dart';
 
 class IntroScreen extends StatefulWidget {
   const IntroScreen({super.key});
@@ -16,28 +16,47 @@ class _IntroScreenState extends State<IntroScreen> {
   @override
   void initState() {
     super.initState();
-    
-    // تشغيل الفيديو محلياً من مجلد assets داخل التطبيق
-    _controller = VideoPlayerController.asset('assets/intro.mp4')
-      ..initialize().then((_) {
+    _initVideoPlayer();
+  }
+
+  Future<void> _initVideoPlayer() async {
+    // ربط ملف الفيديو المحلي
+    _controller = VideoPlayerController.asset('assets/intro.mp4');
+
+    try {
+      // الانتظار حتى يتم تهيئة الفيديو بالكامل في الذاكرة
+      await _controller.initialize();
+      
+      if (mounted) {
         setState(() {
           _isInitialized = true;
         });
-        _controller.play();
+        
+        // بدء التشغيل فوراً بعد اكتمال التهيئة
+        await _controller.play();
         _controller.setLooping(false);
-      });
+      }
+    } catch (e) {
+      // في حال واجه الجهاز أي مشكلة في الترميز، يتم الانتقال للمتصفح تلقائياً لمنع التوقف
+      _navigateToWebView();
+    }
 
-    // الانتقال التلقائي لوحة التحكم فور انتهاء الفيديو
+    // مراقبة انتهاء الفيديو بدقة للانتقال التلقائي
     _controller.addListener(() {
-      if (_controller.value.position >= _controller.value.duration) {
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const DashboardScreen()),
-          );
-        }
+      if (_controller.value.isInitialized &&
+          _controller.value.position >= _controller.value.duration) {
+        _navigateToWebView();
       }
     });
+  }
+
+  void _navigateToWebView() {
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const EmisWebviewScreen()),
+      );
+    }
   }
 
   @override
@@ -62,7 +81,9 @@ class _IntroScreenState extends State<IntroScreen> {
                   ),
                 ),
               )
-            : const CircularProgressIndicator(color: Colors.white),
+            : const CircularProgressIndicator(
+                color: Colors.white,
+              ), // مؤشر تحميل أنيق ريثما يجهز الفيديو
       ),
     );
   }
