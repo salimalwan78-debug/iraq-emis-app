@@ -23,7 +23,8 @@ class GradesScreen extends StatelessWidget {
           style: TextStyle(color: Colors.white, fontSize: 16),
         ),
         centerTitle: true,
-        iconTheme: const Icon(Icons.arrow_back, color: Colors.white),
+        // التصحيح هنا: استخدام IconThemeData
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
         children: [
@@ -48,7 +49,8 @@ class GradesScreen extends StatelessWidget {
                     ],
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.between,
+                    // التصحيح هنا: استخدام spaceBetween كاملة
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       // معلومات الطالب
                       Column(
@@ -110,7 +112,7 @@ class GradesScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-              onPressed: () {},
+                onPressed: () {},
                 child: const Text(
                   'حفظ التغييرات',
                   style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
