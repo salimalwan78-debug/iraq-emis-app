@@ -16,12 +16,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. إعداد بيئة الجافا (Java JDK)
+      # 2. إعداد بيئة الجافا (Java JDK 11 متوافقة تماماً مع بناء أندرويد)
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '11'
 
       # 3. إعداد بيئة فلاتر (Flutter SDK)
       - name: Set up Flutter
