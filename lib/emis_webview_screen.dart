@@ -1,6 +1,5 @@
-import 'package:flutter/material.dart';
+٥import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'dashboard_screen.dart';
 
 class EmisWebviewScreen extends StatefulWidget {
@@ -37,16 +36,8 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             return NavigationDecision.navigate;
           },
         ),
-      );
-
-    // تفعيل إعدادات الكاش الخاصة بأندرويد لحل مشكلة ERR_CACHE_MISS نهائياً
-    if (_controller.platform is AndroidWebViewController) {
-      (_controller.platform as AndroidWebViewController)
-          .setCacheMode(AndroidCacheMode.load_default);
-    }
-
-    // تحميل موقع EMIS الرسمي
-    _controller.loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
+      )
+      ..loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
   }
 
   @override
