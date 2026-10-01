@@ -12,42 +12,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. سحب كود المشروع من المستودع
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. إعداد بيئة الجافا (Java 17 المطلوبة لـ Gradle الحديث)
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 3. إعداد بيئة فلاتر (Flutter SDK)
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.x'
           cache: true
 
-      # 4. توليد ملفات ومجلدات أندرويد تلقائياً
       - name: Create Android Platform Files
         run: flutter create . --org com.emis.iraq --project-name iraq_emis
 
-      # 5. تحديث نسخة Gradle تلقائياً لتتطابق مع Java 17 وتمنع أخطاء التجميع
-      - name: Upgrade Gradle Version for Java 17 Compatibility
+      # حقن صلاحية الإنترنت بشكل آمن ومضمون في ملف AndroidManifest
+      - name: Add Internet Permission
+        run: |
+          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|g' android/app/src/main/AndroidManifest.xml
+
+      - name: Upgrade Gradle Version
         run: |
           sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip|g' android/gradle/wrapper/gradle-wrapper.properties
 
-      # 6. جلب الحزم البرمجية للمشروع
       - name: Install dependencies
         run: flutter pub get
 
-      # 7. بناء ملف الـ APK بصيغة الإصدار التجاري (Release)
       - name: Build APK
         run: flutter build apk --release
 
-      # 8. رفع ملف الـ APK الناتج ليكون جاهزاً للتحميل
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
