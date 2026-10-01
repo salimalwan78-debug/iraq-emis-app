@@ -1,55 +1,93 @@
-name: Build Flutter Android APK
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
+import 'emis_webview_screen.dart';
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch: 
+class IntroScreen extends StatefulWidget {
+  const IntroScreen({super.key});
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+  @override
+  State<IntroScreen> createState() => _IntroScreenState();
+}
 
-    steps:
-      # 1. سحب كود المشروع من المستودع
-      - name: Checkout repository
-        uses: actions/checkout@v4
+class _IntroScreenState extends State<IntroScreen> {
+  late VideoPlayerController _controller;
+  bool _isInitialized = false;
+  Timer? _fallbackTimer;
 
-      # 2. إعداد بيئة الجافا (Java 17 المطلوبة لـ Gradle الحديث)
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+  @override
+  void initState() {
+    super.initState();
+    _initVideoPlayer();
+  }
 
-      # 3. إعداد بيئة فلاتر (Flutter SDK)
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.19.x'
-          cache: true
+  Future<void> _initVideoPlayer() async {
+    _controller = VideoPlayerController.asset('assets/intro.mp4');
 
-      # 4. توليد ملفات ومجلدات أندرويد تلقائياً
-      - name: Create Android Platform Files
-        run: flutter create . --org com.emis.iraq --project-name iraq_emis
+    try {
+      await _controller.initialize();
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
+        await _controller.play();
+        _controller.setLooping(false);
 
-      # 5. تحديث نسخة Gradle تلقائياً لتتطابق مع Java 17 وتمنع أخطاء التجميع
-      - name: Upgrade Gradle Version for Java 17 Compatibility
-        run: |
-          sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+        // مؤقت أمان احتياطي لمدة 5 ثوانٍ (مدّة الفيديو تقريباً)
+        // يضمن الانتقال التلقائي للمتصفح حتى لو تجمد مشغل أندرويد بسبب الترميز
+        _fallbackTimer = Timer(const Duration(seconds: 5), () {
+          _navigateToWebView();
+        });
+      }
+    } catch (e) {
+      _navigateToWebView();
+    }
 
-      # 6. جلب الحزم البرمجية للمشروع
-      - name: Install dependencies
-        run: flutter pub get
+    // مراقبة انتهاء الفيديو الطبيعية
+    _controller.addListener(() {
+      if (_controller.value.isInitialized &&
+          _controller.value.position >= _controller.value.duration) {
+        _fallbackTimer?.cancel();
+        _navigateToWebView();
+      }
+    });
+  }
 
-      # 7. بناء ملف الـ APK بصيغة الإصدار التجاري (Release)
-      - name: Build APK
-        run: flutter build apk --release
+  void _navigateToWebView() {
+    _fallbackTimer?.cancel();
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const EmisWebviewScreen()),
+      );
+    }
+  }
 
-      # 8. رفع ملف الـ APK الناتج ليكون جاهزاً للتحميل
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: emis-app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+  @override
+  void dispose() {
+    _fallbackTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: _isInitialized
+            ? SizedBox.expand(
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _controller.value.size.width,
+                    height: _controller.value.size.height,
+                    child: VideoPlayer(_controller),
+                  ),
+                ),
+              )
+            : const CircularProgressIndicator(color: Colors.white),
+      ),
+    );
+  }
+}
