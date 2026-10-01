@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'intro_screen.dart'; // استيراد شاشة البداية المتحركة
+import 'intro_screen.dart';
 
 void main() {
   runApp(const EmisApp());
@@ -27,7 +27,6 @@ class EmisApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         fontFamily: 'Cairo',
       ),
-      // جعل شاشة البداية المتحركة هي الواجهة الافتتاحية للتطبيق
       home: const IntroScreen(),
     );
   }
