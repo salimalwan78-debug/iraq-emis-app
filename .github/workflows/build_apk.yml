@@ -1,0 +1,46 @@
+name: Build Flutter Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. سحب كود المشروع من المستودع
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. إعداد بيئة الجافا (Java JDK)
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. إعداد بيئة فلاتر (Flutter SDK)
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.x'
+          cache: true
+
+      # 4. جلب الحزم البرمجية للمشروع
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 5. بناء ملف الـ APK بصيغة الإصدار التجاري (Release)
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 6. رفع ملف الـ APK الناتج ليكون جاهزاً للتحميل
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: emis-app-release
+          path: build/app/outputs/flutter-apk/app-release.apk
