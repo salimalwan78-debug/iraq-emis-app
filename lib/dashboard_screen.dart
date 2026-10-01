@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'grades_screen.dart'; // استيراد شاشة الدرجات
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -14,7 +15,6 @@ class DashboardScreen extends StatelessWidget {
           style: TextStyle(color: Colors.white, fontSize: 18),
         ),
         centerTitle: true,
-        iconTheme: const Icon(Icons.menu, color: Colors.white),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -75,14 +75,25 @@ class DashboardScreen extends StatelessWidget {
                     icon: Icons.people,
                     color: Colors.blue.shade50,
                     iconColor: Colors.blue,
-                    onTap: () {},
+                    onTap: () {
+                      // رسالة مؤقتة لتجربة النقر
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('قسّام الطلاب قيد التطوير')),
+                      );
+                    },
                   ),
                   _buildDashboardCard(
                     title: 'الدرجات',
                     icon: Icons.grade,
                     color: Colors.purple.shade50,
                     iconColor: Colors.purple,
-                    onTap: () {},
+                    onTap: () {
+                      // الانتقال الفعلي إلى شاشة الدرجات
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const GradesScreen()),
+                      );
+                    },
                   ),
                   _buildDashboardCard(
                     title: 'إدخال بيانات (Excel)',
