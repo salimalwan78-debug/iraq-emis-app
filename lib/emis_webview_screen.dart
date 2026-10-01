@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'dashboard_screen.dart';
 
 class EmisWebviewScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
   @override
   void initState() {
     super.initState();
+    
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
@@ -35,8 +37,16 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             return NavigationDecision.navigate;
           },
         ),
-      )
-      ..loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
+      );
+
+    // تفعيل إعدادات الكاش الخاصة بأندرويد لحل مشكلة ERR_CACHE_MISS نهائياً
+    if (_controller.platform is AndroidWebViewController) {
+      (_controller.platform as AndroidWebViewController)
+          .setCacheMode(AndroidCacheMode.load_default);
+    }
+
+    // تحميل موقع EMIS الرسمي
+    _controller.loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
   }
 
   @override
@@ -50,7 +60,7 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
         ),
         centerTitle: true,
         actions: [
-          // زر تحديث الصفحة في حال بطء الشبكة
+          // زر تحديث الصفحة
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () => _controller.reload(),
