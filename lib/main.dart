@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'dashboard_screen.dart'; // استيراد لوحة التحكم
+import 'intro_screen.dart'; // استيراد شاشة البداية المتحركة
 
 void main() {
   runApp(const EmisApp());
@@ -27,8 +27,8 @@ class EmisApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         fontFamily: 'Cairo',
       ),
-      // فتح التطبيق مباشرة على لوحة التحكم لتسهيل المعاينة
-      home: const DashboardScreen(),
+      // جعل شاشة البداية المتحركة هي الواجهة الافتتاحية للتطبيق
+      home: const IntroScreen(),
     );
   }
 }
