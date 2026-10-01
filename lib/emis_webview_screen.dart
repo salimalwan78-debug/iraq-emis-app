@@ -23,17 +23,13 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) {
-            setState(() {
-              _isLoading = true;
-            });
+            if (mounted) setState(() => _isLoading = true);
           },
           onPageFinished: (String url) {
-            setState(() {
-              _isLoading = false; // تم تصحيح الخطأ المطبعي هنا
-            });
+            if (mounted) setState(() => _isLoading = false);
           },
-          onNavigationRequest: (NavigationRequest request) {
-            return NavigationDecision.navigate;
+          onWebResourceError: (WebResourceError error) {
+            if (mounted) setState(() => _isLoading = false);
           },
         ),
       )
@@ -51,12 +47,10 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
         ),
         centerTitle: true,
         actions: [
-          // زر تحديث الصفحة
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () => _controller.reload(),
           ),
-          // زر الانتقال إلى لوحة تحكم التطبيق بعد إتمام تسجيل الدخول بنجاح
           IconButton(
             icon: const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
             tooltip: 'الدخول إلى التطبيق بعد تسجيل الدخول',
