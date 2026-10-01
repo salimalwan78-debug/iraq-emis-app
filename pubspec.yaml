@@ -1,5 +1,5 @@
 name: iraq_emis
-description: "نظام إدارة المعلومات التربوية - وزارة التربية العراقية"
+description: "نظام إدارة معلومات التعليم في العراق - EMIS"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  lottie: ^3.1.2       # حزمة الرسوم المتحركة
+  video_player: ^2.8.6 # حزمة تشغيل الفيديو المحلي
 
 dev_dependencies:
   flutter_test:
@@ -19,3 +21,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # تعريف الأصول (الفيديو المحلي)
+  assets:
+    - assets/intro.mp4
