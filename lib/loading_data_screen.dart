@@ -21,11 +21,10 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
   @override
   void initState() {
     super.initState();
-    AppCore.playRelaxMusic(); // تشغيل الصوت الهادئ
+    AppCore.playRelaxMusic();
     _startFetchingData();
   }
 
-  // خوارزمية ذكية لاستخراج الاسم الحقيقي بدلاً من ali05.diw
   String _extractRealNameFromToken() {
     try {
       String jwt = widget.token.toLowerCase().startsWith('bearer ') ? widget.token.substring(7).trim() : widget.token;
@@ -34,11 +33,10 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
         String payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
         Map<String, dynamic> data = jsonDecode(payload);
         
-        String bestName = "مستخدم النظام";
+        String bestName = "إدارة المدرسة";
         int maxLength = 0;
         final arabicRegex = RegExp(r'[\u0600-\u06FF]');
         
-        // البحث عن أطول نص يحتوي على حروف عربية في التوكن (وهو دائماً الاسم الحقيقي)
         data.forEach((key, value) {
           if (value is String && arabicRegex.hasMatch(value) && value.length > maxLength) {
             maxLength = value.length;
@@ -50,7 +48,7 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
     } catch (e) {
       debugPrint("Token Decode Error: $e");
     }
-    return "مستخدم النظام";
+    return "إدارة المدرسة";
   }
 
   Future<void> _startFetchingData() async {
@@ -64,11 +62,11 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
       final schoolRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/school/getschoolinformation/${widget.schoolId}'), headers: headers);
       final schoolData = schoolRes.statusCode == 200 ? jsonDecode(utf8.decode(schoolRes.bodyBytes)) : {};
 
-      setState(() { _statusText = "جاري تحميل سجلات الطلاب وتوزيعاتهم..."; _progressValue = 0.6; });
+      setState(() { _statusText = "جاري تحميل سجلات الطلاب..."; _progressValue = 0.6; });
       final studentsRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/student/getstudents?page=1&rowsPerPage=3000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}'), headers: headers);
       final studentsData = studentsRes.statusCode == 200 ? jsonDecode(utf8.decode(studentsRes.bodyBytes))['data'] ?? [] : [];
 
-      setState(() { _statusText = "جاري تحميل بيانات الكادر التعليمي..."; _progressValue = 0.9; });
+      setState(() { _statusText = "جاري تحميل بيانات الكادر..."; _progressValue = 0.9; });
       final teachersRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/employee/getemployeesbyentities?page=1&rowsPerPage=1000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}&isTeacher=true'), headers: headers);
       final teachersData = teachersRes.statusCode == 200 ? jsonDecode(utf8.decode(teachersRes.bodyBytes))['data'] ?? [] : [];
 
@@ -80,14 +78,14 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
           context,
           MaterialPageRoute(
             builder: (context) => DashboardScreen(
-              token: authHeader, schoolId: widget.schoolId, schoolName: schoolData['schoolName'] ?? 'مدرسة',
+              token: authHeader, schoolId: widget.schoolId, schoolName: schoolData['schoolName'] ?? 'المدرسة',
               userName: realUserName, allStudents: studentsData, allTeachers: teachersData,
             ),
           ),
         );
       }
     } catch (e) {
-      if (mounted) setState(() { _statusText = "حدث خطأ أثناء التحميل: يرجى التحقق من الشبكة"; });
+      if (mounted) setState(() { _statusText = "حدث خطأ. تحقق من الشبكة"; });
     }
   }
 
@@ -101,7 +99,8 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.school_rounded, size: 100, color: Colors.amber),
+              // وضع صورة التلميذ بدلاً من قبعة التخرج
+              Image.asset('assets/avatar.png', width: 150, height: 150, fit: BoxFit.contain),
               const SizedBox(height: 30),
               const Text('نظام الإدارة المدرسية - EMIS', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 40),
