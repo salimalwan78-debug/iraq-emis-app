@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
 import 'app_core.dart';
 
@@ -328,7 +329,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 }
 
-// حقل يدعم التعرف السحابي المباشر باللغة العربية (ar-IQ) بمعزل عن إعدادات الهاتف
 class SpeechTextField extends StatefulWidget {
   final String label;
   final dynamic initialValue;
@@ -344,6 +344,7 @@ class SpeechTextField extends StatefulWidget {
 
 class _SpeechTextFieldState extends State<SpeechTextField> {
   late TextEditingController _controller;
+  final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
 
   @override
@@ -352,26 +353,31 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
     _controller = TextEditingController(text: widget.initialValue?.toString() ?? '');
   }
 
-  // محاكاة الاتصال المباشر بخدمة التعرف الصوتي العربية (ar-IQ) وتجاوز محرك الهاتف المحلي
-  void _startCloudSpeechRecognition() async {
-    var status = await Permission.microphone.request();
-    if (status.isGranted) {
-      setState(() => _isListening = true);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('جاري الاستماع باللغة العربية (ar-IQ)...')));
-
-      // محاكاة استلام النص العربي السحابي المباشر بعد انتهاء التحدث
-      await Future.delayed(const Duration(seconds: 3));
-
-      if (mounted) {
-        setState(() {
-          _isListening = false;
-          // نتيجة تجريبية تؤكد عمل النظام باللغة العربية حصراً
-          _controller.text = "علي عيسى الفتلاوي"; 
-          widget.onChanged(_controller.text);
-        });
+  void _listen() async {
+    if (!_isListening) {
+      var status = await Permission.microphone.request();
+      if (status.isGranted) {
+        bool available = await _speech.initialize(
+          onStatus: (status) { if (status == 'done' || status == 'notListening') setState(() => _isListening = false); },
+          onError: (error) => setState(() => _isListening = false),
+        );
+        if (available) {
+          setState(() => _isListening = true);
+          _speech.listen(
+            localeId: 'ar_IQ',
+            listenMode: stt.ListenMode.dictation,
+            onResult: (val) {
+              setState(() {
+                _controller.text = val.recognizedWords;
+                widget.onChanged(_controller.text);
+              });
+            },
+          );
+        }
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الرجاء السماح بالوصول للمايكروفون')));
+      setState(() => _isListening = false);
+      _speech.stop();
     }
   }
 
@@ -389,8 +395,8 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
           suffixIcon: IconButton(
             icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.red : Colors.indigo, size: 28),
-            onPressed: _startCloudSpeechRecognition,
-            tooltip: 'تحدث باللغة العربية (سحابياً)',
+            onPressed: _listen,
+            tooltip: 'تحدث باللغة العربية',
           ),
         ),
       ),
