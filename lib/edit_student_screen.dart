@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
 import 'app_core.dart';
 
@@ -23,7 +22,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
-  // القاموس الرسمي المحدث بحسب حقول نظام EMIS الفعلي
   final Map<String, String> _officialArabicNames = {
     'name': 'الإسم',
     'fatherName': 'إسم الأب',
@@ -237,7 +235,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       } else if (value is List) {
         // تخطي القوائم المعقدة
       } else {
-        widgets.add(SpeechTextField(
+        widgets.add(CloudSpeechTextField(
           label: arabicLabel,
           initialValue: value,
           isDark: isDark,
@@ -330,21 +328,21 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 }
 
-// أداة المايكروفون المعززة لضمان جلب واستقرار النص العربي وتخطي أي عائق في النظام
-class SpeechTextField extends StatefulWidget {
+// أداة المايكروفون المعززة لضمان التعرف السحابي بالعربية (ar-IQ) حصراً
+class CloudSpeechTextField extends StatefulWidget {
   final String label;
   final dynamic initialValue;
   final bool isDark;
   final Color textColor;
   final Function(String) onChanged;
 
-  const SpeechTextField({super.key, required this.label, required this.initialValue, required this.isDark, required this.textColor, required this.onChanged});
+  const CloudSpeechTextField({super.key, required this.label, required this.initialValue, required this.isDark, required this.textColor, required this.onChanged});
 
   @override
-  State<SpeechTextField> createState() => _SpeechTextFieldState();
+  State<CloudSpeechTextField> createState() => _CloudSpeechTextFieldState();
 }
 
-class _SpeechTextFieldState extends State<SpeechTextField> {
+class _CloudSpeechTextFieldState extends State<CloudSpeechTextField> {
   late TextEditingController _controller;
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
@@ -365,9 +363,9 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
         );
         if (available) {
           setState(() => _isListening = true);
-          // ضبط الاستماع بوضع الإملاء مع تحديد معرف اللغة العربية صراحة
+          // فرض التعرّف الصوتي بترميز ar-IQ حصراً بمعزل عن إعدادات نظام الجهاز
           _speech.listen(
-            localeId: 'ar_AE', // استخدام معرف عربي مدعوم في أغلب محركات الهواتف الذكية كبديل آمن لـ ar_IQ
+            localeId: 'ar_IQ',
             listenMode: stt.ListenMode.dictation,
             onResult: (val) {
               setState(() {
@@ -399,7 +397,7 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
           suffixIcon: IconButton(
             icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.red : Colors.indigo, size: 28),
             onPressed: _listen,
-            tooltip: 'تحدث باللغة العربية',
+            tooltip: 'تحدث باللغة العربية (ar-IQ)',
           ),
         ),
       ),
