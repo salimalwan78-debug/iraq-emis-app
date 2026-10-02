@@ -25,48 +25,29 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
     _startFetchingData();
   }
 
-  String _extractRealNameFromToken() {
-    try {
-      String jwt = widget.token.toLowerCase().startsWith('bearer ') ? widget.token.substring(7).trim() : widget.token;
-      final parts = jwt.split('.');
-      if (parts.length == 3) {
-        String payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
-        Map<String, dynamic> data = jsonDecode(payload);
-        
-        String bestName = "إدارة المدرسة";
-        int maxLength = 0;
-        final arabicRegex = RegExp(r'[\u0600-\u06FF]');
-        
-        data.forEach((key, value) {
-          if (value is String && arabicRegex.hasMatch(value) && value.length > maxLength) {
-            maxLength = value.length;
-            bestName = value;
-          }
-        });
-        return bestName;
-      }
-    } catch (e) {
-      debugPrint("Token Decode Error: $e");
-    }
-    return "إدارة المدرسة";
-  }
-
   Future<void> _startFetchingData() async {
     String authHeader = widget.token.toLowerCase().startsWith('bearer ') ? widget.token : 'Bearer ${widget.token}';
-    final headers = {'Authorization': authHeader, 'Accept': 'application/json'};
+    final headers = {'Authorization': authHeader, 'Accept': 'application/json, text/plain, */*'};
 
     try {
-      String realUserName = _extractRealNameFromToken();
+      setState(() { _statusText = "جاري جلب بيانات الحساب..."; _progressValue = 0.2; });
+      // جلب الاسم الحقيقي بناءً على تحليل السجلات التي أرفقتها
+      String realUserName = "مستخدم النظام";
+      final userRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/account/getloggedinuser'), headers: headers);
+      if (userRes.statusCode == 200) {
+        final userData = jsonDecode(utf8.decode(userRes.bodyBytes));
+        realUserName = userData['employeeName'] ?? userData['fullName'] ?? realUserName;
+      }
 
-      setState(() { _statusText = "جاري جلب بيانات المدرسة..."; _progressValue = 0.3; });
+      setState(() { _statusText = "جاري جلب بيانات المدرسة..."; _progressValue = 0.4; });
       final schoolRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/school/getschoolinformation/${widget.schoolId}'), headers: headers);
       final schoolData = schoolRes.statusCode == 200 ? jsonDecode(utf8.decode(schoolRes.bodyBytes)) : {};
 
-      setState(() { _statusText = "جاري تحميل سجلات الطلاب..."; _progressValue = 0.6; });
+      setState(() { _statusText = "جاري تحميل سجلات الطلاب..."; _progressValue = 0.7; });
       final studentsRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/student/getstudents?page=1&rowsPerPage=3000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}'), headers: headers);
       final studentsData = studentsRes.statusCode == 200 ? jsonDecode(utf8.decode(studentsRes.bodyBytes))['data'] ?? [] : [];
 
-      setState(() { _statusText = "جاري تحميل بيانات الكادر..."; _progressValue = 0.9; });
+      setState(() { _statusText = "جاري إعداد بيئة العمل..."; _progressValue = 0.9; });
       final teachersRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/employee/getemployeesbyentities?page=1&rowsPerPage=1000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}&isTeacher=true'), headers: headers);
       final teachersData = teachersRes.statusCode == 200 ? jsonDecode(utf8.decode(teachersRes.bodyBytes))['data'] ?? [] : [];
 
@@ -99,8 +80,8 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // وضع صورة التلميذ بدلاً من قبعة التخرج
-              Image.asset('assets/avatar.png', width: 150, height: 150, fit: BoxFit.contain),
+              // استخدام صورة avatar.png (بدون خلفية)
+              Image.asset('assets/avatar.png', width: 140, height: 140, fit: BoxFit.contain),
               const SizedBox(height: 30),
               const Text('نظام الإدارة المدرسية - EMIS', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 40),
