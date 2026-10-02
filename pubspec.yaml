@@ -21,10 +21,11 @@ dependencies:
   audioplayers: ^5.2.1
   video_player: ^2.8.2
   
-  # مكتبات الكاميرا والصوت (للميزات الذكية الجديدة)
+  # مكتبات الكاميرا والصوت والتخزين المحلي
   image_picker: ^1.0.7
   speech_to_text: ^6.5.1
   permission_handler: ^11.3.0
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
