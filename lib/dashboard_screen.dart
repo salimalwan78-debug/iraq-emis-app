@@ -1,151 +1,82 @@
 import 'package:flutter/material.dart';
-import 'grades_screen.dart'; // استيراد شاشة الدرجات
+import 'edit_student_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
+  // يمكنك تمرير هذه البيانات من شاشة تسجيل الدخول لاحقاً
+  final String schoolName = "ثانوية الديوانية للمتميزين (1500799)";
+  final String userName = "علي عيسى الفتلاوي";
+  final String authToken = "YOUR_EXTRACTED_TOKEN"; // سيتم تعويضه بالتوكن المكتشف
+
   const DashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
+        title: const Text('لوحة التحكم - EMIS'),
         backgroundColor: const Color(0xFF0F172A),
-        title: const Text(
-          'نظام EMIS - لوحة التحكم',
-          style: TextStyle(color: Colors.white, fontSize: 18),
-        ),
         centerTitle: true,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
           children: [
-            // بطاقة الترحيب بالمدرسة
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.school, size: 40, color: Colors.blue),
-                  SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'صباح الخير، مدير المدرسة',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'مدرسة الأمل الابتدائية (السادس الابتدائي)',
-                        style: TextStyle(fontSize: 13, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ],
+            UserAccountsDrawerHeader(
+              decoration: const BoxDecoration(color: Color(0xFF0F172A)),
+              accountName: Text(userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              accountEmail: Text(schoolName, style: const TextStyle(fontSize: 13, color: Colors.white70)),
+              currentAccountPicture: const CircleAvatar(
+                backgroundColor: Colors.white,
+                child: Icon(Icons.school, size: 40, color: Color(0xFF0F172A)),
               ),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'الخدمات الأساسية',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+            ExpansionTile(
+              leading: const Icon(Icons.people_alt),
+              title: const Text('الطلاب', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.person_add, color: Colors.green),
+                  title: const Text('إضافة طالب جديد'),
+                  onTap: () {
+                    // الانتقال لشاشة الإضافة مستقبلاً
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Colors.blue),
+                  title: const Text('تعديل طالب'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => EditStudentScreen(token: authToken),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            
-            // شبكة البطاقات التفاعلية
-            Expanded(
-              child: GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                children: [
-                  _buildDashboardCard(
-                    title: 'الطلاب',
-                    icon: Icons.people,
-                    color: Colors.blue.shade50,
-                    iconColor: Colors.blue,
-                    onTap: () {
-                      // رسالة مؤقتة لتجربة النقر
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('قسّام الطلاب قيد التطوير')),
-                      );
-                    },
-                  ),
-                  _buildDashboardCard(
-                    title: 'الدرجات',
-                    icon: Icons.grade,
-                    color: Colors.purple.shade50,
-                    iconColor: Colors.purple,
-                    onTap: () {
-                      // الانتقال الفعلي إلى شاشة الدرجات
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const GradesScreen()),
-                      );
-                    },
-                  ),
-                  _buildDashboardCard(
-                    title: 'إدخال بيانات (Excel)',
-                    icon: Icons.table_chart,
-                    color: Colors.green.shade50,
-                    iconColor: Colors.green,
-                    onTap: () {},
-                  ),
-                  _buildDashboardCard(
-                    title: 'إرسال البيانات',
-                    icon: Icons.send,
-                    color: Colors.orange.shade50,
-                    iconColor: Colors.orange,
-                    onTap: () {},
-                  ),
-                ],
-              ),
+            ListTile(
+              leading: const Icon(Icons.work),
+              title: const Text('المعلمون', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              onTap: () {
+                // الانتقال لشاشة المعلمين مستقبلاً
+                Navigator.pop(context);
+              },
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildDashboardCard({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required Color iconColor,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(16),
-        ),
+      body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 48, color: iconColor),
-            const SizedBox(height: 12),
+            const Icon(Icons.dashboard_customize, size: 80, color: Colors.grey),
+            const SizedBox(height: 20),
             Text(
-              title,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: iconColor.withOpacity(0.9),
-              ),
-              textAlign: TextAlign.center,
+              'مرحباً بك في $schoolName',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ],
         ),
