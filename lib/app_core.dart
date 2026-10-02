@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 
 class AppCore {
-  // للتحكم بالوضع الداكن على مستوى التطبيق
   static ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
-  
-  // للتحكم بالصوت
   static final AudioPlayer audioPlayer = AudioPlayer();
   static bool isAudioMuted = false;
 
   static Future<void> playRelaxMusic() async {
-    audioPlayer.setReleaseMode(ReleaseMode.loop); // إعادة التشغيل تلقائياً
-    if (!isAudioMuted) {
+    // التحقق الصارم: إذا كان المستخدم أوقفه، لا تقم بتشغيله أبداً
+    if (isAudioMuted) return;
+    
+    audioPlayer.setReleaseMode(ReleaseMode.loop);
+    if (audioPlayer.state != PlayerState.playing) {
       await audioPlayer.play(AssetSource('relax.mp3'));
     }
   }
@@ -19,9 +19,10 @@ class AppCore {
   static Future<void> toggleAudio() async {
     isAudioMuted = !isAudioMuted;
     if (isAudioMuted) {
-      await audioPlayer.pause();
+      // إيقاف جذري للصوت
+      await audioPlayer.stop();
     } else {
-      await audioPlayer.resume();
+      await playRelaxMusic();
     }
   }
 
