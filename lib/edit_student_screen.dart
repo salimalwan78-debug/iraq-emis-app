@@ -22,37 +22,9 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   bool _isSaving = false;
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
-
-  // قاموس تعريب الحقول البرمجية لتظهر باللغة العربية الرسمية لنظام EMIS
-  final Map<String, String> _arabicFieldNames = {
-    'name': 'الاسم الأول',
-    'fatherName': 'اسم الأب',
-    'grandFatherName': 'اسم الجد',
-    'surName': 'اللقب',
-    'motherName': 'اسم الأم الثلاثي',
-    'mothersFatherName': 'اسم أب الأم',
-    'mothersGrandFatherName': 'اسم جد الأم',
-    'birthDate': 'تاريخ الميلاد',
-    'nationality': 'الجنسية',
-    'religion': 'الديانة',
-    'bloodGroup': 'فصيلة الدم',
-    'censusNumber': 'رقم التعداد العام',
-    'town': 'المحافظة',
-    'closestLocation': 'أقرب نقطة دالة',
-    'street': 'المنطقة / الشارع',
-    'homePhoneNumber': 'رقم الهاتف',
-    'idNumber': 'رقم الهوية',
-    'recordNumber': 'رقم السجل',
-    'pageNumber': 'رقم الصحيفة',
-    'issuer': 'جهة الإصدار',
-  };
-
-  // تعريب خيارات القوائم المنسدلة للقيم العددية
-  final Map<String, Map<String, String>> _dropdownOptions = {
-    'religion': {'الإسلام': 'الإسلام', 'المسيحية': 'المسيحية', 'الصابئة': 'الصابئة المندائية', 'أخرى': 'أخرى'},
-    'bloodGroup': {'O+': 'O+', 'O-': 'O-', 'A+': 'A+', 'A-': 'A-', 'B+': 'B+', 'B-': 'B-', 'AB+': 'AB+', 'AB-': 'AB-'},
-    'idType': {'12': 'البطاقة الوطنية الموحدة', '13': 'هوية الأحوال المدنية', '14': 'شهادة الجنسية', '15': 'شهادة ولادة'}
-  };
+  
+  // خريطة لتخزين الخيارات الديناميكية المجلوبة من النظام باللغة العربية
+  final Map<String, List<Map<String, dynamic>>> _dynamicDropdowns = {};
 
   @override
   void initState() {
@@ -70,6 +42,8 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
             _studentData = jsonDecode(utf8.decode(response.bodyBytes)); 
             _isLoading = false; 
           });
+          // جلب الخيارات العربية لحظياً من النظام
+          _fetchDynamicOptions();
         }
       }
     } catch (e) {
@@ -77,7 +51,28 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
-  // معاينة الصورة وإزالة الخلفية ديناميكياً
+  // جلب الخيارات والقوائم المنسدلة باللغة العربية من النظام كما ظهرت في السجلات
+  Future<void> _fetchDynamicOptions() async {
+    List<String> optionPaths = ['الحالة الاقتصادية', 'ذوي الإعاقة الخاصة', 'الديانة'];
+    for (String path in optionPaths) {
+      try {
+        final res = await http.get(
+          Uri.parse('https://emis.moedu.gov.iq/api/selectoption/$path'),
+          headers: {'Authorization': widget.token, 'Accept': 'application/json'}
+        );
+        if (res.statusCode == 200) {
+          List<dynamic> data = jsonDecode(utf8.decode(res.bodyBytes));
+          setState(() {
+            _dynamicDropdowns[path] = data.map((e) => {'value': e['value'], 'displayName': e['displayName']}).toList();
+          });
+        }
+      } catch (e) {
+        debugPrint('خطأ في جلب خيارات $path: $e');
+      }
+    }
+  }
+
+  // نافذة المعاينة مع معالجة حقيقية لحذف الخلفية
   Future<void> _showImagePreviewDialog(File imageFile) async {
     File currentImage = imageFile;
     bool isProcessing = false;
@@ -90,7 +85,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: const Text('معاينة الصورة وتعديلها', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+              title: const Text('معاينة الصورة', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -103,14 +98,15 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const Text('يمكنك تقريب الصورة أو تحريكها لضبطها', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const Text('يمكنك تقريب الصورة بأصابعك لضبطها', style: TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 15),
                   isProcessing 
-                    ? const Padding(padding: EdgeInsets.all(8.0), child: Text('جاري معالجة الصورة وإزالة الخلفية...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))
+                    ? const Padding(padding: EdgeInsets.all(8.0), child: Text('جاري معالجة وإزالة خلفية الصورة...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))
                     : ElevatedButton.icon(
                         onPressed: () async {
                           setDialogState(() => isProcessing = true);
                           try {
+                            // محاولة الإزالة عبر الخدمة المعتمدة
                             var request = http.MultipartRequest('POST', Uri.parse('https://api.remove.bg/v1.0/removebg'));
                             request.files.add(await http.MultipartFile.fromPath('image_file', currentImage.path));
                             var response = await request.send();
@@ -126,7 +122,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                           setDialogState(() => isProcessing = false);
                         },
                         icon: const Icon(Icons.auto_fix_high),
-                        label: const Text('إزالة الخلفية (تلقائي)'),
+                        label: const Text('حذف الخلفية'),
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
                       )
                 ],
@@ -217,13 +213,11 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
-  // بناء الحقول ديناميكياً مع التعريب التام للأسماء
+  // بناء الحقول ديناميكياً مع الاعتماد كلياً على البيانات العربية القادمة من النظام
   List<Widget> _buildDynamicFields(Map<String, dynamic> dataMap, bool isDark, Color textColor) {
     List<Widget> widgets = [];
     dataMap.forEach((key, value) {
       if (key == 'imageUrl' || key == 'id' || key == 'createdAt' || key == 'updatedAt' || key == 'schoolId') return;
-
-      String fieldTitle = _arabicFieldNames[key] ?? key;
 
       if (value is Map<String, dynamic>) {
         widgets.add(
@@ -236,7 +230,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(fieldTitle, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
+                  Text(key, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
                   const SizedBox(height: 15),
                   ..._buildDynamicFields(value, isDark, textColor),
                 ],
@@ -247,44 +241,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       } else if (value is List) {
         // تجاهل القوائم المعقدة
       } else {
-        // إذا كان الحقل يمتلك خيارات معرّفة (مثل idType أو religion)
-        if (_dropdownOptions.containsKey(key)) {
-          Map<String, String> options = _dropdownOptions[key]!;
-          String currentValue = value?.toString() ?? options.keys.first;
-          if (!options.containsKey(currentValue)) currentValue = options.keys.first;
-
-          widgets.add(
-            Padding(
-              padding: const EdgeInsets.only(bottom: 15),
-              child: DropdownButtonFormField<String>(
-                value: currentValue,
-                dropdownColor: isDark ? Colors.grey[900] : Colors.white,
-                style: TextStyle(color: textColor, fontSize: 16),
-                decoration: InputDecoration(
-                  labelText: fieldTitle,
-                  labelStyle: const TextStyle(color: Colors.grey),
-                  filled: true,
-                  fillColor: isDark ? Colors.black12 : Colors.grey[50],
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300))
-                ),
-                items: options.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
-                onChanged: (v) {
-                  setState(() {
-                    dataMap[key] = (key == 'idType') ? int.tryParse(v!) : v;
-                  });
-                },
-              ),
-            ),
-          );
-        } else {
-          widgets.add(SpeechTextField(
-            label: fieldTitle,
-            initialValue: value,
-            isDark: isDark,
-            textColor: textColor,
-            onChanged: (v) => dataMap[key] = v,
-          ));
-        }
+        widgets.add(SpeechTextField(
+          label: key, // عرض اسم الحقل من النظام
+          initialValue: value,
+          isDark: isDark,
+          textColor: textColor,
+          onChanged: (v) => dataMap[key] = v,
+        ));
       }
     });
     return widgets;
@@ -320,7 +283,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                       child: ListView(
                         padding: const EdgeInsets.all(15),
                         children: [
-                          // قسم الصورة وزر الحذف الجديد
                           Center(
                             child: Stack(
                               children: [
@@ -341,7 +303,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                             ),
                           ),
                           const SizedBox(height: 10),
-                          // زر حذف الصورة الحالية
                           Center(
                             child: TextButton.icon(
                               onPressed: _deleteCurrentPhoto,
@@ -373,7 +334,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 }
 
-// أداة ذكية: المايكروفون الفعال (عربي حصرياً)
+// أداة ذكية: المايكروفون الفعال (باللغة العربية الحصرية بدون أي لغة أخرى)
 class SpeechTextField extends StatefulWidget {
   final String label;
   final dynamic initialValue;
@@ -402,17 +363,15 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
     if (!_isListening) {
       var status = await Permission.microphone.request();
       if (status.isGranted) {
-        bool available = await _speech.initialize(
+        bool available = await stt.SpeechToText().initialize(
           onStatus: (status) { if (status == 'done' || status == 'notListening') setState(() => _isListening = false); },
           onError: (error) => setState(() => _isListening = false),
         );
         if (available) {
-          var locales = await _speech.locales();
-          var arabicLocale = locales.firstWhere((l) => l.localeId.toLowerCase().contains('ar'), orElse: () => locales.first);
-          
           setState(() => _isListening = true);
+          // إجبار محرك التعرف الصوتي على اللغة العربية حصراً
           _speech.listen(
-            localeId: arabicLocale.localeId,
+            localeId: 'ar_IQ',
             onResult: (val) {
               setState(() {
                 _controller.text = val.recognizedWords;
@@ -443,7 +402,7 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
           suffixIcon: IconButton(
             icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.red : Colors.indigo, size: 28),
             onPressed: _listen,
-            tooltip: 'تحدث بالعربية',
+            tooltip: 'تحدث باللغة العربية حصراً',
           ),
         ),
       ),
