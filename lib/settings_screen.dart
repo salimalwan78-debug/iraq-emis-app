@@ -22,8 +22,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return Scaffold(
           backgroundColor: bgColor,
           appBar: AppBar(
-            title: const Text('الإعدادات', style: TextStyle(color: Colors.white)),
-            backgroundColor: const Color(0xFF1A237E),
+            title: const Text('الإعدادات', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            flexibleSpace: Container(decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF1A237E), Color(0xFF4A90E2)]))), 
             iconTheme: const IconThemeData(color: Colors.white),
           ),
           body: Padding(
@@ -31,37 +31,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               children: [
                 Card(
-                  color: cardColor,
+                  color: cardColor, elevation: 2,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                   child: ListTile(
-                    leading: Icon(isDark ? Icons.dark_mode : Icons.light_mode, color: Colors.amber),
-                    title: Text('الوضع الداكن (Dark Mode)', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                    trailing: Switch(
-                      value: isDark,
-                      activeColor: Colors.amber,
-                      onChanged: (val) {
-                        AppCore.toggleTheme();
-                      },
-                    ),
+                    leading: Icon(isDark ? Icons.dark_mode : Icons.light_mode, color: Colors.amber, size: 30),
+                    title: Text('الوضع الداكن (Dark Mode)', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                    trailing: Switch(value: isDark, activeColor: Colors.amber, onChanged: (val) => AppCore.toggleTheme()),
                   ),
                 ),
                 const SizedBox(height: 15),
                 Card(
-                  color: cardColor,
+                  color: cardColor, elevation: 2,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                   child: ListTile(
-                    leading: Icon(AppCore.isAudioMuted ? Icons.volume_off : Icons.music_note, color: Colors.blue),
-                    title: Text('الموسيقى الهادئة', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                    leading: Icon(AppCore.isAudioMuted ? Icons.volume_off : Icons.music_note, color: Colors.blue, size: 30),
+                    title: Text('الموسيقى الهادئة', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
                     trailing: Switch(
-                      value: !AppCore.isAudioMuted,
-                      activeColor: Colors.blue,
-                      onChanged: (val) async {
-                        await AppCore.toggleAudio();
-                        setState(() {});
-                      },
+                      value: !AppCore.isAudioMuted, activeColor: Colors.blue,
+                      onChanged: (val) async { await AppCore.toggleAudio(); setState(() {}); },
                     ),
                   ),
                 ),
+                
+                const Spacer(),
+                
+                // النصوص المطلوبة في صفحة الإعدادات
+                const Text('نسخة غير رسمية', style: TextStyle(color: Colors.grey, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                const Text('تصميم/ علي الفتلاوي / ثانوية الديوانية للمتميزين', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                const SizedBox(height: 40),
               ],
             ),
           ),
