@@ -13,6 +13,10 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # مكتبة الترجمة لدعم اللغة العربية وتوجيه الشاشة من اليمين لليسار (RTL)
+  flutter_localizations:
+    sdk: flutter
+
   # The following adds the Cupertino Icons font to your application.
   cupertino_icons: ^1.0.2
   
@@ -25,6 +29,9 @@ dependencies:
   # مكتبة تشغيل الصوتيات
   audioplayers: ^5.2.1
 
+  # مكتبة تشغيل الفيديو للشاشة الافتتاحية
+  video_player: ^2.8.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -34,7 +41,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # مسارات الصور والملفات الصوتية
+  # مسارات الصور والملفات الصوتية والفيديو
   assets:
     - assets/images/avatar.jpg
     - assets/relax.mp3
+    - assets/intro.mp4
