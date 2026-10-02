@@ -41,8 +41,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # مسارات الصور والملفات الصوتية والفيديو
+  # تم تصحيح المسار ليتطابق مع ما رفعته في GitHub
   assets:
-    - assets/images/avatar.jpg
+    - assets/avatar.jpg
     - assets/relax.mp3
     - assets/intro.mp4
