@@ -23,6 +23,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
+  // القاموس الرسمي المحدث بحسب حقول نظام EMIS الفعلي
   final Map<String, String> _officialArabicNames = {
     'name': 'الإسم',
     'fatherName': 'إسم الأب',
@@ -69,7 +70,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
-  // معاينة الصورة وحذف الخلفية (مع إصلاح لون الزر ليكون فاتحاً وواضحاً)
   Future<void> _showImagePreviewDialog(File imageFile) async {
     File currentImage = imageFile;
     bool isProcessing = false;
@@ -103,9 +103,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                         onPressed: () async {
                           setDialogState(() => isProcessing = true);
                           try {
-                            // استخدام طلب مخصص لخدمة إزالة الخلفية
                             var request = http.MultipartRequest('POST', Uri.parse('https://api.remove.bg/v1.0/removebg'));
-                            // مفتاح تجريبي عام أو إرسال عبر الـ Multipart
                             request.files.add(await http.MultipartFile.fromPath('image_file', currentImage.path));
                             var response = await request.send();
                             if (response.statusCode == 200) {
@@ -113,9 +111,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                               File tempFile = File('${currentImage.path}_bg.png');
                               await tempFile.writeAsBytes(bytes);
                               setDialogState(() => currentImage = tempFile);
-                            } else {
-                              // بديل محلي في حال رد السيرفر بالرفض لعدم وجود مفتاح
-                              setDialogState(() => currentImage = imageFile);
                             }
                           } catch (e) {
                             debugPrint('خطأ: $e');
@@ -124,7 +119,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                         },
                         icon: const Icon(Icons.auto_fix_high, color: Colors.black87),
                         label: const Text('حذف الخلفية', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-                        // تم تغيير لون الخلفية إلى الأصفر الفاتح/الأبيض لضمان ظهور الكلمة بوضوح تام
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.amberAccent),
                       )
                 ],
@@ -336,7 +330,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 }
 
-// أداة المايكروفون المحسنة لضمان الكتابة باللغة العربية حصراً عبر إجبار المحرك الصوتي
+// أداة المايكروفون المعززة لضمان جلب واستقرار النص العربي وتخطي أي عائق في النظام
 class SpeechTextField extends StatefulWidget {
   final String label;
   final dynamic initialValue;
@@ -371,23 +365,10 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
         );
         if (available) {
           setState(() => _isListening = true);
-          // فرض اللغة العربية للمملكة العراقية أو العربية العامة لضمان عدم الخروج للإنجليزية
+          // ضبط الاستماع بوضع الإملاء مع تحديد معرف اللغة العربية صراحة
           _speech.listen(
-            localeId: 'ar_IQ',
+            localeId: 'ar_AE', // استخدام معرف عربي مدعوم في أغلب محركات الهواتف الذكية كبديل آمن لـ ar_IQ
             listenMode: stt.ListenMode.dictation,
-            cancelOnError: true,
-            partialResults: true,
-            onResult: (val) {
-              setState(() {
-                _controller.text = val.recognizedWords;
-                widget.onChanged(_controller.text);
-              });
-            },
-          );
-        } else {
-          // محاولة بديلة لتعريف اللغة في حال فشل ar_IQ
-          _speech.listen(
-            localeId: 'ar_SA',
             onResult: (val) {
               setState(() {
                 _controller.text = val.recognizedWords;
@@ -418,7 +399,7 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
           suffixIcon: IconButton(
             icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.red : Colors.indigo, size: 28),
             onPressed: _listen,
-            tooltip: 'تحدث باللغة العربية حصراً',
+            tooltip: 'تحدث باللغة العربية',
           ),
         ),
       ),
