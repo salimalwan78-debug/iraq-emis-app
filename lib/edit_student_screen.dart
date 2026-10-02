@@ -282,7 +282,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         allowMalformed: true,
       );
 
-      final uploadResponse = await client.get(
+      final uploadPageResponse = await client.get(
         Uri.parse(uploadPageUrl),
         headers: {
           ...browserHeaders,
@@ -290,15 +290,15 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         },
       );
 
-      if (uploadResponse.statusCode < 200 ||
-          uploadResponse.statusCode >= 400) {
+      if (uploadPageResponse.statusCode < 200 ||
+          uploadPageResponse.statusCode >= 400) {
         throw Exception(
-          'فشل فتح صفحة remove.bg/upload: ${uploadResponse.statusCode}',
+          'فشل فتح صفحة remove.bg/upload: ${uploadPageResponse.statusCode}',
         );
       }
 
       final uploadHtml = utf8.decode(
-        uploadResponse.bodyBytes,
+        uploadPageResponse.bodyBytes,
         allowMalformed: true,
       );
 
@@ -309,7 +309,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
       final cookieHeader = _mergeCookieHeaders(
         _cookieHeader(homeResponse.headers),
-        _cookieHeader(uploadResponse.headers),
+        _cookieHeader(uploadPageResponse.headers),
       );
 
       debugPrint(
@@ -406,25 +406,25 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         ),
       );
 
-      final uploadResponse = await imageRequest.send();
-      final uploadBytes = await uploadResponse.stream.toBytes();
+      final imageUploadResponse = await imageRequest.send();
+      final uploadBytes = await imageUploadResponse.stream.toBytes();
       final uploadBody = utf8.decode(
         uploadBytes,
         allowMalformed: true,
       );
 
       debugPrint(
-        'remove.bg /images status: ${uploadResponse.statusCode}',
+        'remove.bg /images status: ${imageUploadResponse.statusCode}',
       );
       debugPrint(
         'remove.bg /images response: '
         '${uploadBody.length > 2000 ? uploadBody.substring(0, 2000) : uploadBody}',
       );
 
-      if (uploadResponse.statusCode < 200 ||
-          uploadResponse.statusCode >= 300) {
+      if (imageUploadResponse.statusCode < 200 ||
+          imageUploadResponse.statusCode >= 300) {
         throw Exception(
-          'فشل رفع الصورة إلى remove.bg: ${uploadResponse.statusCode} '
+          'فشل رفع الصورة إلى remove.bg: ${imageUploadResponse.statusCode} '
           '$uploadBody',
         );
       }
