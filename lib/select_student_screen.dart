@@ -1,6 +1,4 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'edit_student_screen.dart';
 
 class SelectStudentScreen extends StatefulWidget {
@@ -162,11 +160,13 @@ class _SelectStudentScreenState extends State<SelectStudentScreen> {
                 onPressed: _selectedStudentId == null
                     ? null
                     : () {
-                        // الانتقال لصفحة التعديل
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => EditStudentScreen(token: widget.token),
+                            builder: (context) => EditStudentScreen(
+                              token: widget.token,
+                              studentId: _selectedStudentId!, // التمرير التلقائي لرقم الطالب
+                            ),
                           ),
                         );
                       },
