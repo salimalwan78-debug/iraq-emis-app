@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'edit_student_screen.dart';
+import 'edit_student_screen.dart'; // سطر الاستيراد المهم جداً الذي كان ناقصاً
 import 'app_core.dart';
 
 class SelectStudentScreen extends StatefulWidget {
