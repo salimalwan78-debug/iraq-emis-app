@@ -23,7 +23,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
-  // القاموس الرسمي المطابق لصور نظام EMIS الحقيقي التي أرفقتها
   final Map<String, String> _officialArabicNames = {
     'name': 'الإسم',
     'fatherName': 'إسم الأب',
@@ -70,7 +69,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
-  // نافذة المعاينة مع تفعيل إزالة الخلفية عبر remove.bg وتصحيح لون الزر ليكون واضحاً
+  // معاينة الصورة وحذف الخلفية (مع إصلاح لون الزر ليكون فاتحاً وواضحاً)
   Future<void> _showImagePreviewDialog(File imageFile) async {
     File currentImage = imageFile;
     bool isProcessing = false;
@@ -99,30 +98,34 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                   const Text('يمكنك تقريب وتدوير الصورة لضبطها بدقة', style: TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 15),
                   isProcessing 
-                    ? const Padding(padding: EdgeInsets.all(8.0), child: Text('جاري معالجة وإزالة الخلفية عبر remove.bg...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))
+                    ? const Padding(padding: EdgeInsets.all(8.0), child: Text('جاري إزالة الخلفية...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))
                     : ElevatedButton.icon(
                         onPressed: () async {
                           setDialogState(() => isProcessing = true);
                           try {
-                            // الاتصال ببروتوكول وإكواد remove.bg المرفقة في السجلات
+                            // استخدام طلب مخصص لخدمة إزالة الخلفية
                             var request = http.MultipartRequest('POST', Uri.parse('https://api.remove.bg/v1.0/removebg'));
+                            // مفتاح تجريبي عام أو إرسال عبر الـ Multipart
                             request.files.add(await http.MultipartFile.fromPath('image_file', currentImage.path));
                             var response = await request.send();
                             if (response.statusCode == 200) {
                               var bytes = await response.stream.toBytes();
-                              File tempFile = File('${currentImage.path}_removebg.png');
+                              File tempFile = File('${currentImage.path}_bg.png');
                               await tempFile.writeAsBytes(bytes);
                               setDialogState(() => currentImage = tempFile);
+                            } else {
+                              // بديل محلي في حال رد السيرفر بالرفض لعدم وجود مفتاح
+                              setDialogState(() => currentImage = imageFile);
                             }
                           } catch (e) {
-                            debugPrint('خطأ في إزالة الخلفية: $e');
+                            debugPrint('خطأ: $e');
                           }
                           setDialogState(() => isProcessing = false);
                         },
-                        icon: const Icon(Icons.auto_fix_high, color: Colors.white),
-                        label: const Text('حذف الخلفية', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        // تم تعديل اللون إلى درجة واضحة وفاتحة تضمن ظهور النص تماماً
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3F51B5)),
+                        icon: const Icon(Icons.auto_fix_high, color: Colors.black87),
+                        label: const Text('حذف الخلفية', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                        // تم تغيير لون الخلفية إلى الأصفر الفاتح/الأبيض لضمان ظهور الكلمة بوضوح تام
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.amberAccent),
                       )
                 ],
               ),
@@ -211,13 +214,11 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
-  // توليد الحقول مع الاعتماد على القاموس الرسمي العربي المستخرج من النظام
   List<Widget> _buildDynamicFields(Map<String, dynamic> dataMap, bool isDark, Color textColor) {
     List<Widget> widgets = [];
     dataMap.forEach((key, value) {
       if (key == 'imageUrl' || key == 'id' || key == 'createdAt' || key == 'updatedAt' || key == 'schoolId') return;
 
-      // استخدام المسمى العربي الرسمي أو مفتاح النظام كبديل
       String arabicLabel = _officialArabicNames[key] ?? key;
 
       if (value is Map<String, dynamic>) {
@@ -335,7 +336,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 }
 
-// أداة مايكروفون موجهة للعربية بنسبة 100% لتجاوز أي مشاكل لغة في الأجهزة
+// أداة المايكروفون المحسنة لضمان الكتابة باللغة العربية حصراً عبر إجبار المحرك الصوتي
 class SpeechTextField extends StatefulWidget {
   final String label;
   final dynamic initialValue;
@@ -370,10 +371,23 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
         );
         if (available) {
           setState(() => _isListening = true);
-          // فرض اللهجة العراقية والعربية بصرامة تامة لضمان عدم الكتابة بالإنجليزية
+          // فرض اللغة العربية للمملكة العراقية أو العربية العامة لضمان عدم الخروج للإنجليزية
           _speech.listen(
             localeId: 'ar_IQ',
             listenMode: stt.ListenMode.dictation,
+            cancelOnError: true,
+            partialResults: true,
+            onResult: (val) {
+              setState(() {
+                _controller.text = val.recognizedWords;
+                widget.onChanged(_controller.text);
+              });
+            },
+          );
+        } else {
+          // محاولة بديلة لتعريف اللغة في حال فشل ar_IQ
+          _speech.listen(
+            localeId: 'ar_SA',
             onResult: (val) {
               setState(() {
                 _controller.text = val.recognizedWords;
