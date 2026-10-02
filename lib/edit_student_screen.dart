@@ -302,12 +302,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         allowMalformed: true,
       );
 
-      // Prefer the token from the root page (this is the sequence used by
-      // the known website workflow), then fall back to /upload.
-      final csrfToken = _extractCsrfToken(homeHtml) ??
-          _extractCsrfToken(uploadHtml);
+      // The CSRF token must belong to the current /upload session.
+      // Prefer /upload over the home page because remove.bg can rotate the
+      // token when the upload page is created.
+      var csrfToken = _extractCsrfToken(uploadHtml) ??
+          _extractCsrfToken(homeHtml);
 
-      final cookieHeader = _mergeCookieHeaders(
+      var cookieHeader = _mergeCookieHeaders(
         _cookieHeader(homeResponse.headers),
         _cookieHeader(uploadPageResponse.headers),
       );
@@ -339,15 +340,78 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         trustHeaders['Cookie'] = cookieHeader;
       }
 
-      final trustResponse = await client.post(
+      var trustResponse = await client.post(
         Uri.parse('https://www.remove.bg/trust_tokens'),
         headers: trustHeaders,
       );
 
-      final trustBody = utf8.decode(
+      var trustBody = utf8.decode(
         trustResponse.bodyBytes,
         allowMalformed: true,
       );
+
+      // remove.bg may rotate the CSRF token between the initial page
+      // response and the upload session. If the server explicitly reports
+      // invalid_csrf_token, refresh /upload once and retry with the new
+      // token and the updated cookies.
+      if (trustResponse.statusCode == 422 &&
+          trustBody.contains('invalid_csrf_token')) {
+        // The error response itself may contain the current CSRF token.
+        // Use it first, then fall back to a fresh /upload page token.
+        final serverCsrfToken = _extractCsrfToken(trustBody);
+
+        cookieHeader = _mergeCookieHeaders(
+          cookieHeader,
+          _cookieHeader(trustResponse.headers),
+        );
+
+        final refreshResponse = await client.get(
+          Uri.parse(uploadPageUrl),
+          headers: {
+            ...browserHeaders,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Referer': 'https://www.remove.bg/',
+            if (cookieHeader.isNotEmpty) 'Cookie': cookieHeader,
+          },
+        );
+
+        final refreshHtml = utf8.decode(
+          refreshResponse.bodyBytes,
+          allowMalformed: true,
+        );
+
+        final refreshedCsrf = _extractCsrfToken(refreshHtml);
+        if (serverCsrfToken != null && serverCsrfToken.isNotEmpty) {
+          csrfToken = serverCsrfToken;
+        } else if (refreshedCsrf != null && refreshedCsrf.isNotEmpty) {
+          csrfToken = refreshedCsrf;
+        }
+
+        cookieHeader = _mergeCookieHeaders(
+          cookieHeader,
+          _cookieHeader(refreshResponse.headers),
+        );
+
+        final retryHeaders = <String, String>{
+          ...browserHeaders,
+          'Accept': 'application/json, text/plain, */*',
+          'Referer': uploadPageUrl,
+          'Origin': 'https://www.remove.bg',
+          'X-CSRF-Token': csrfToken,
+          'X-Requested-With': 'XMLHttpRequest',
+          if (cookieHeader.isNotEmpty) 'Cookie': cookieHeader,
+        };
+
+        trustResponse = await client.post(
+          Uri.parse('https://www.remove.bg/trust_tokens'),
+          headers: retryHeaders,
+        );
+
+        trustBody = utf8.decode(
+          trustResponse.bodyBytes,
+          allowMalformed: true,
+        );
+      }
 
       debugPrint(
         'remove.bg /trust_tokens status: ${trustResponse.statusCode}',
