@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'select_student_screen.dart';
+import 'app_core.dart';
 
 class StudentManagementScreen extends StatelessWidget {
   final String token;
@@ -10,57 +11,42 @@ class StudentManagementScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('إدارة الطلاب', style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF0F172A),
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            _buildListTileCard(
-              title: 'تعديل بيانات الطلاب',
-              subtitle: 'ابحث عن طالب وقم بتحديث بياناته ومرحلته',
-              icon: Icons.edit_document,
-              color: Colors.indigo,
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => SelectStudentScreen(token: token, schoolId: schoolId, preLoadedStudents: allStudents)));
-              },
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: AppCore.themeNotifier,
+      builder: (context, currentMode, child) {
+        bool isDark = currentMode == ThemeMode.dark;
+        return Scaffold(
+          backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA),
+          appBar: AppBar(title: const Text('إدارة الطلاب', style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF1A237E), iconTheme: const IconThemeData(color: Colors.white)),
+          body: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              children: [
+                _buildCard(context, 'تعديل بيانات الطلاب', 'تعديل الصف، الشعبة، السكن، والصورة', Icons.edit_document, Colors.indigo, isDark, () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => SelectStudentScreen(token: token, schoolId: schoolId, preLoadedStudents: allStudents)));
+                }),
+                const SizedBox(height: 15),
+                _buildCard(context, 'إضافة طالب جديد', 'إضافة سجل طالب جديد كلياً للمدرسة', Icons.person_add, Colors.green, isDark, () {}),
+              ],
             ),
-            const SizedBox(height: 15),
-            _buildListTileCard(
-              title: 'إضافة طالب جديد',
-              subtitle: 'تسجيل طالب جديد في المدرسة',
-              icon: Icons.person_add_alt_1,
-              color: Colors.green,
-              onTap: () {
-                // سيتم برمجتها لاحقاً
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      }
     );
   }
 
-  Widget _buildListTileCard({required String title, required String subtitle, required IconData icon, required Color color, required VoidCallback onTap}) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(15),
-        leading: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-          child: Icon(icon, color: color, size: 30),
+  Widget _buildCard(BuildContext context, String title, String sub, IconData icon, Color color, bool isDark, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Card(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(15),
+          leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle), child: Icon(icon, color: color, size: 30)),
+          title: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+          subtitle: Text(sub, style: const TextStyle(color: Colors.grey)),
+          trailing: Icon(Icons.arrow_forward_ios, size: 16, color: isDark ? Colors.white54 : Colors.black54),
         ),
-        title: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        subtitle: Text(subtitle, style: TextStyle(color: Colors.grey[600])),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: onTap,
       ),
     );
   }
