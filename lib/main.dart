@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'intro_screen.dart';
+import 'loading_data_screen.dart'; // أو intro_screen.dart حسب نقطة البداية لديك
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // تفعيل وضع ملء الشاشة (إخفاء شريط الإشعارات والأزرار السفلية)
+  // تفعيل وضع ملء الشاشة (إخفاء أشرطة النظام العلوية والسفلية)
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   runApp(const MyApp());
@@ -30,10 +30,10 @@ class MyApp extends StatelessWidget {
       ],
       locale: const Locale('ar', 'IQ'),
       theme: ThemeData(
-        fontFamily: 'Tajawal', // يفضل إضافة خط عربي إن وجد
+        fontFamily: 'Tajawal',
         primarySwatch: Colors.blue,
       ),
-      home: const IntroScreen(),
+      home: const Scaffold(body: Center(child: Text('بوابة الدخول'))), // استبدلها بشاشة البداية لديك
     );
   }
 }
