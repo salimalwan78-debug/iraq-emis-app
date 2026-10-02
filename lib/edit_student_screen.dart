@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -74,14 +73,14 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       );
 
       if (response.statusCode == 200) {
-        if (mounted) {
-          setState(() {
-            _studentData =
-                jsonDecode(utf8.decode(response.bodyBytes))
-                    as Map<String, dynamic>;
-            _isLoading = false;
-          });
-        }
+        if (!mounted) return;
+
+        setState(() {
+          _studentData = jsonDecode(
+            utf8.decode(response.bodyBytes),
+          ) as Map<String, dynamic>;
+          _isLoading = false;
+        });
       } else {
         if (mounted) {
           setState(() => _isLoading = false);
@@ -97,505 +96,521 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 
   // ============================================================
-  // remove.bg website workflow
+  // REMOVE.BG WEBSITE WORKFLOW
   // ============================================================
 
-  Future<String?> _extractCsrfToken(http.Response response) async {
-    String body = utf8.decode(response.bodyBytes);
+  Future<String?> _getRemoveBgTrustToken(
+    http.Client client,
+    Uri uploadPageUri,
+    String html,
+    Map<String, String> headers,
+  ) async {
+    String? trustToken;
 
+    // بعض إصدارات الصفحة تضع token داخل HTML.
     final patterns = <RegExp>[
       RegExp(
-        r'<meta[^>]+name=["' r"']csrf-token["' r"'][^>]+content=["' r"']([^"' r"']+)',
+        r'''<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)''',
         caseSensitive: false,
       ),
       RegExp(
-        r'<meta[^>]+content=["' r"']([^"' r"']+)["' r"'][^>]+name=["' r"']csrf-token["' r"']',
+        r'''<meta[^>]+content=["']([^"']+)["'][^>]+name=["']csrf-token["']''',
         caseSensitive: false,
       ),
       RegExp(
-        r'csrf-token[^>]+content=["' r"']([^"' r"']+)',
+        r'''useToken\(["']([^"']+)["']\)''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''"trust_token"\s*:\s*"([^"]+)"''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''"trustToken"\s*:\s*"([^"]+)"''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''trust_token["']?\s*[:=]\s*["']([^"']+)["']''',
         caseSensitive: false,
       ),
     ];
 
     for (final pattern in patterns) {
-      final match = pattern.firstMatch(body);
+      final match = pattern.firstMatch(html);
       if (match != null && match.groupCount >= 1) {
-        final token = match.group(1);
-        if (token != null && token.isNotEmpty) {
-          return token;
+        trustToken = match.group(1);
+        if (trustToken != null && trustToken.isNotEmpty) {
+          break;
         }
       }
     }
 
-    // Some versions of remove.bg expose the token in JavaScript.
-    final jsPatterns = <RegExp>[
-      RegExp(
-        r'csrfToken["' r"']?\s*[:=]\s*["' r"']([^"' r"']+)',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'csrf-token["' r"']?\s*[:=]\s*["' r"']([^"' r"']+)',
-        caseSensitive: false,
-      ),
-    ];
-
-    for (final pattern in jsPatterns) {
-      final match = pattern.firstMatch(body);
-      if (match != null && match.groupCount >= 1) {
-        final token = match.group(1);
-        if (token != null && token.isNotEmpty) {
-          return token;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  Map<String, String> _extractCookies(http.Response response) {
-    final cookies = <String, String>{};
-
-    final setCookieHeaders = response.headers.entries
-        .where((entry) => entry.key.toLowerCase() == 'set-cookie')
-        .map((entry) => entry.value)
-        .toList();
-
-    for (final header in setCookieHeaders) {
-      final parts = header.split(';');
-
-      for (final part in parts) {
-        final trimmed = part.trim();
-
-        if (trimmed.isEmpty) continue;
-
-        final index = trimmed.indexOf('=');
-
-        if (index <= 0) continue;
-
-        final name = trimmed.substring(0, index).trim();
-        final value = trimmed.substring(index + 1).trim();
-
-        if (name.isNotEmpty) {
-          cookies[name] = value;
-        }
-
-        break;
-      }
-    }
-
-    return cookies;
-  }
-
-  String _cookieHeader(Map<String, String> cookies) {
-    return cookies.entries
-        .map((entry) => '${entry.key}=${entry.value}')
-        .join('; ');
-  }
-
-  Future<File?> _removeBackgroundUsingRemoveBgWebsite(
-    File imageFile,
-    void Function(String message) onProgress,
-  ) async {
-    final client = http.Client();
-
-    final cookies = <String, String>{};
-
-    try {
-      // ----------------------------------------------------------
-      // 1. Open the actual remove.bg/upload page.
-      // ----------------------------------------------------------
-
-      onProgress('الاتصال بموقع remove.bg...');
-
-      final uploadPageResponse = await client.get(
-        Uri.parse('https://www.remove.bg/upload'),
-        headers: {
-          'Accept':
-              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-              '(KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36',
-        },
-      );
-
-      if (uploadPageResponse.statusCode < 200 ||
-          uploadPageResponse.statusCode >= 400) {
-        throw Exception(
-          'فشل فتح remove.bg/upload: ${uploadPageResponse.statusCode}',
+    // إذا لم يوجد token في HTML، نحاول endpoint الخاص بالموقع.
+    if (trustToken == null || trustToken.isEmpty) {
+      try {
+        final response = await client.post(
+          Uri.parse('https://www.remove.bg/trust_tokens'),
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+            'Referer': uploadPageUri.toString(),
+            'Origin': 'https://www.remove.bg',
+          },
         );
-      }
 
-      cookies.addAll(_extractCookies(uploadPageResponse));
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final body = response.body;
 
-      String? csrfToken =
-          await _extractCsrfToken(uploadPageResponse);
+          try {
+            final decoded = jsonDecode(body);
 
-      if (csrfToken == null || csrfToken.isEmpty) {
-        throw Exception(
-          'لم يتم العثور على CSRF token في صفحة remove.bg',
-        );
-      }
+            if (decoded is Map) {
+              final candidates = [
+                decoded['trust_token'],
+                decoded['trustToken'],
+                decoded['token'],
+                decoded['csrf_token'],
+                decoded['csrfToken'],
+              ];
 
-      // ----------------------------------------------------------
-      // 2. Request trust token.
-      // ----------------------------------------------------------
+              for (final candidate in candidates) {
+                if (candidate != null &&
+                    candidate.toString().trim().isNotEmpty) {
+                  trustToken = candidate.toString();
+                  break;
+                }
+              }
 
-      onProgress('تهيئة رفع الصورة...');
+              if (trustToken == null) {
+                final data = decoded['data'];
 
-      final trustResponse = await client.post(
-        Uri.parse('https://www.remove.bg/trust_tokens'),
-        headers: {
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'Origin': 'https://www.remove.bg',
-          'Referer': 'https://www.remove.bg/upload',
-          'X-CSRF-Token': csrfToken,
-          'X-Requested-With': 'XMLHttpRequest',
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-              '(KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36',
-          if (cookies.isNotEmpty) 'Cookie': _cookieHeader(cookies),
-        },
-      );
+                if (data is Map) {
+                  final nestedCandidates = [
+                    data['trust_token'],
+                    data['trustToken'],
+                    data['token'],
+                  ];
 
-      if (trustResponse.statusCode != 200) {
-        throw Exception(
-          'فشل الحصول على trust token: ${trustResponse.statusCode}',
-        );
-      }
-
-      cookies.addAll(_extractCookies(trustResponse));
-
-      final trustBody =
-          utf8.decode(trustResponse.bodyBytes);
-
-      String? trustToken;
-
-      final trustMatch = RegExp(
-        r'useToken\(["' r"']([^"' r"']+)["' r"']\)',
-      ).firstMatch(trustBody);
-
-      if (trustMatch != null) {
-        trustToken = trustMatch.group(1);
-      }
-
-      // Fallback in case the response format changes.
-      if (trustToken == null || trustToken.isEmpty) {
-        try {
-          final decoded = jsonDecode(trustBody);
-
-          if (decoded is Map<String, dynamic>) {
-            final requestValue = decoded['request']?.toString();
-
-            if (requestValue != null) {
-              final fallbackMatch = RegExp(
-                r'useToken\(["' r"']([^"' r"']+)["' r"']\)',
-              ).firstMatch(requestValue);
-
-              if (fallbackMatch != null) {
-                trustToken = fallbackMatch.group(1);
+                  for (final candidate in nestedCandidates) {
+                    if (candidate != null &&
+                        candidate.toString().trim().isNotEmpty) {
+                      trustToken = candidate.toString();
+                      break;
+                    }
+                  }
+                }
               }
             }
-          }
-        } catch (_) {}
-      }
+          } catch (_) {
+            final match = RegExp(
+              r'''["']?(?:trust_token|trustToken|token)["']?\s*[:=]\s*["']([^"']+)["']''',
+              caseSensitive: false,
+            ).firstMatch(body);
 
-      if (trustToken == null || trustToken.isEmpty) {
+            if (match != null) {
+              trustToken = match.group(1);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('خطأ في الحصول على trust token: $e');
+      }
+    }
+
+    return trustToken;
+  }
+
+  Future<File?> _removeBackgroundUsingWebsite(File imageFile) async {
+    final client = http.Client();
+
+    try {
+      const uploadPageUrl = 'https://www.remove.bg/upload';
+
+      final baseHeaders = <String, String>{
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,'
+            'image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'ar-IQ,ar;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      };
+
+      // ----------------------------------------------------------
+      // 1. فتح صفحة /upload
+      // ----------------------------------------------------------
+
+      final pageResponse = await client.get(
+        Uri.parse(uploadPageUrl),
+        headers: baseHeaders,
+      );
+
+      if (pageResponse.statusCode < 200 ||
+          pageResponse.statusCode >= 400) {
         throw Exception(
-          'لم يتم العثور على trust_token من remove.bg',
+          'فشل فتح صفحة remove.bg/upload: '
+          '${pageResponse.statusCode}',
         );
       }
 
+      final pageHtml = utf8.decode(
+        pageResponse.bodyBytes,
+        allowMalformed: true,
+      );
+
+      final trustToken = await _getRemoveBgTrustToken(
+        client,
+        Uri.parse(uploadPageUrl),
+        pageHtml,
+        baseHeaders,
+      );
+
+      debugPrint(
+        'remove.bg trust token: '
+        '${trustToken == null ? "غير موجود" : "تم الحصول عليه"}',
+      );
+
       // ----------------------------------------------------------
-      // 3. Upload the actual image to /images.
+      // 2. إرسال الصورة إلى /images
       // ----------------------------------------------------------
 
-      onProgress('رفع الصورة إلى remove.bg...');
-
-      final uploadRequest = http.MultipartRequest(
+      final imageRequest = http.MultipartRequest(
         'POST',
         Uri.parse('https://www.remove.bg/images'),
       );
 
-      uploadRequest.headers.addAll({
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
+      imageRequest.headers.addAll({
+        ...baseHeaders,
+        'Accept': 'application/json, text/plain, */*',
         'Origin': 'https://www.remove.bg',
-        'Referer': 'https://www.remove.bg/upload',
-        'X-CSRF-Token': csrfToken,
-        'User-Agent':
-            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36',
-        if (cookies.isNotEmpty) 'Cookie': _cookieHeader(cookies),
+        'Referer': uploadPageUrl,
       });
 
-      uploadRequest.files.add(
+      if (trustToken != null && trustToken.isNotEmpty) {
+        imageRequest.headers['X-CSRF-Token'] = trustToken;
+        imageRequest.fields['trust_token'] = trustToken;
+      }
+
+      imageRequest.files.add(
         await http.MultipartFile.fromPath(
-          'image[original]',
+          'image_file',
           imageFile.path,
-          filename: imageFile.uri.pathSegments.isNotEmpty
-              ? imageFile.uri.pathSegments.last
-              : 'image.jpg',
+          filename: 'student.jpg',
         ),
       );
 
-      uploadRequest.fields['trust_token'] = trustToken;
-      uploadRequest.fields['new_editor'] = 'true';
+      final uploadResponse = await imageRequest.send();
+      final uploadBytes = await uploadResponse.stream.toBytes();
 
-      final uploadResponse = await uploadRequest.send();
+      final uploadBody = utf8.decode(
+        uploadBytes,
+        allowMalformed: true,
+      );
 
-      final uploadBody =
-          await uploadResponse.stream.bytesToString();
+      debugPrint(
+        'remove.bg /images status: ${uploadResponse.statusCode}',
+      );
+      debugPrint(
+        'remove.bg /images response: '
+        '${uploadBody.length > 1000 ? uploadBody.substring(0, 1000) : uploadBody}',
+      );
 
-      if (uploadResponse.statusCode != 200) {
+      if (uploadResponse.statusCode < 200 ||
+          uploadResponse.statusCode >= 300) {
         throw Exception(
           'فشل رفع الصورة إلى remove.bg: '
-          '${uploadResponse.statusCode}\n$uploadBody',
+          '${uploadResponse.statusCode}',
         );
       }
 
-      final uploadJson =
-          jsonDecode(uploadBody) as Map<String, dynamic>;
+      // ----------------------------------------------------------
+      // 3. استخراج image id
+      // ----------------------------------------------------------
 
-      final data = uploadJson['data'];
+      String? imageId;
 
-      if (data is! List || data.isEmpty) {
-        throw Exception(
-          'remove.bg لم يرجع بيانات الصورة.',
-        );
+      try {
+        final decoded = jsonDecode(uploadBody);
+
+        if (decoded is Map) {
+          final candidates = [
+            decoded['id'],
+            decoded['image_id'],
+            decoded['imageId'],
+          ];
+
+          for (final candidate in candidates) {
+            if (candidate != null && candidate.toString().isNotEmpty) {
+              imageId = candidate.toString();
+              break;
+            }
+          }
+
+          if (imageId == null && decoded['image'] is Map) {
+            final imageObject = decoded['image'] as Map;
+
+            final candidates = [
+              imageObject['id'],
+              imageObject['image_id'],
+              imageObject['imageId'],
+            ];
+
+            for (final candidate in candidates) {
+              if (candidate != null &&
+                  candidate.toString().isNotEmpty) {
+                imageId = candidate.toString();
+                break;
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // إذا لم تكن الاستجابة JSON، نحاول regex أدناه.
       }
 
-      final first = data.first;
+      imageId ??= RegExp(
+        r'''"(?:id|image_id|imageId)"\s*:\s*"([^"]+)"''',
+        caseSensitive: false,
+      ).firstMatch(uploadBody)?.group(1);
 
-      if (first is! Map<String, dynamic>) {
-        throw Exception(
-          'صيغة استجابة remove.bg غير متوقعة.',
-        );
-      }
-
-      final meta = first['meta'];
-
-      if (meta is! Map<String, dynamic>) {
-        throw Exception(
-          'لم يتم العثور على معلومات الصورة.',
-        );
-      }
-
-      final imageId = meta['id']?.toString();
+      imageId ??= RegExp(
+        r'''(?:image_id|imageId|image)["']?\s*[:=]\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ).firstMatch(uploadBody)?.group(1);
 
       if (imageId == null || imageId.isEmpty) {
         throw Exception(
-          'لم يتم الحصول على image ID.',
+          'لم يتم العثور على image ID في استجابة remove.bg',
         );
       }
 
+      debugPrint('remove.bg image ID: $imageId');
+
       // ----------------------------------------------------------
-      // 4. Poll /images/inline/{id} until preview is finished.
+      // 4. Polling على /images/inline/{image_id}
       // ----------------------------------------------------------
 
-      onProgress('جاري إزالة الخلفية...');
+      Uri? downloadUri;
 
-      String? downloadUrl;
-
-      const maxAttempts = 30;
-
-      for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      for (int attempt = 0; attempt < 30; attempt++) {
         await Future.delayed(
-          Duration(
-            milliseconds: attempt == 0 ? 800 : 1200,
-          ),
+          Duration(seconds: attempt == 0 ? 1 : 2),
         );
 
-        final statusResponse = await client.get(
-          Uri.parse(
-            'https://www.remove.bg/images/inline/$imageId',
-          ),
+        final inlineUri = Uri.parse(
+          'https://www.remove.bg/images/inline/$imageId',
+        );
+
+        final inlineResponse = await client.get(
+          inlineUri,
           headers: {
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Referer': 'https://www.remove.bg/upload',
-            'X-CSRF-Token': csrfToken,
-            'User-Agent':
-                'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-                '(KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36',
-            if (cookies.isNotEmpty)
-              'Cookie': _cookieHeader(cookies),
+            ...baseHeaders,
+            'Accept': 'application/json, text/plain, */*',
+            'Referer': uploadPageUrl,
+            'Origin': 'https://www.remove.bg',
           },
         );
 
-        if (statusResponse.statusCode != 200) {
+        final inlineBody = utf8.decode(
+          inlineResponse.bodyBytes,
+          allowMalformed: true,
+        );
+
+        debugPrint(
+          'remove.bg polling ${attempt + 1}/30 '
+          'status=${inlineResponse.statusCode}',
+        );
+
+        if (inlineResponse.statusCode < 200 ||
+            inlineResponse.statusCode >= 300) {
+          continue;
+        }
+
+        String? state;
+        String? resultUrl;
+
+        try {
+          final decoded = jsonDecode(inlineBody);
+
+          if (decoded is Map) {
+            state = decoded['state']?.toString();
+
+            resultUrl = _findStringRecursively(
+              decoded,
+              const [
+                'url',
+                'download_url',
+                'downloadUrl',
+                'preview_url',
+                'previewUrl',
+              ],
+            );
+
+            if (state == null && decoded['preview_result'] is Map) {
+              final preview = decoded['preview_result'] as Map;
+              state = preview['state']?.toString();
+
+              resultUrl ??= _findStringRecursively(
+                preview,
+                const [
+                  'url',
+                  'download_url',
+                  'downloadUrl',
+                  'preview_url',
+                  'previewUrl',
+                ],
+              );
+            }
+          }
+        } catch (_) {
+          // نحاول regex في حالة الرد ليس JSON.
+        }
+
+        state ??= RegExp(
+          r'''"state"\s*:\s*"([^"]+)"''',
+          caseSensitive: false,
+        ).firstMatch(inlineBody)?.group(1);
+
+        resultUrl ??= RegExp(
+          r'''"(?:url|download_url|downloadUrl|preview_url|previewUrl)"\s*:\s*"([^"]+)"''',
+          caseSensitive: false,
+        ).firstMatch(inlineBody)?.group(1);
+
+        if (state != null) {
+          debugPrint('remove.bg processing state: $state');
+        }
+
+        if (resultUrl != null && resultUrl.isNotEmpty) {
+          resultUrl = _decodeJsonUrl(resultUrl);
+
+          if (resultUrl.startsWith('http://') ||
+              resultUrl.startsWith('https://')) {
+            downloadUri = Uri.tryParse(resultUrl);
+          }
+        }
+
+        if (state?.toLowerCase() == 'finished' &&
+            downloadUri != null) {
+          break;
+        }
+
+        if (downloadUri != null) {
+          break;
+        }
+
+        if (state?.toLowerCase() == 'failed' ||
+            state?.toLowerCase() == 'error') {
           throw Exception(
-            'فشل فحص حالة المعالجة: '
-            '${statusResponse.statusCode}',
+            'remove.bg فشل في معالجة الصورة',
           );
         }
+      }
 
-        cookies.addAll(_extractCookies(statusResponse));
+      if (downloadUri == null) {
+        throw Exception(
+          'انتهى وقت انتظار معالجة الصورة من remove.bg',
+        );
+      }
 
-        final statusBody =
-            utf8.decode(statusResponse.bodyBytes);
+      debugPrint(
+        'remove.bg download URL: $downloadUri',
+      );
 
-        final statusJson =
-            jsonDecode(statusBody) as Map<String, dynamic>;
+      // ----------------------------------------------------------
+      // 5. تنزيل نتيجة Free
+      // ----------------------------------------------------------
 
-        final statusData = statusJson['data'];
+      final resultResponse = await client.get(
+        downloadUri,
+        headers: {
+          ...baseHeaders,
+          'Accept': '*/*',
+          'Referer': uploadPageUrl,
+        },
+      );
 
-        if (statusData is! List || statusData.isEmpty) {
-          continue;
-        }
+      if (resultResponse.statusCode < 200 ||
+          resultResponse.statusCode >= 300) {
+        throw Exception(
+          'فشل تنزيل نتيجة remove.bg: '
+          '${resultResponse.statusCode}',
+        );
+      }
 
-        final statusItem = statusData.first;
+      final resultBytes = resultResponse.bodyBytes;
 
-        if (statusItem is! Map<String, dynamic>) {
-          continue;
-        }
+      // ----------------------------------------------------------
+      // 6. إذا كانت النتيجة ZIP نستخرج color.jpg
+      // ----------------------------------------------------------
 
-        final previewResult =
-            statusItem['preview_result'];
+      List<int>? finalImageBytes;
 
-        if (previewResult is! Map<String, dynamic>) {
-          continue;
-        }
+      final isZip = resultBytes.length >= 4 &&
+          resultBytes[0] == 0x50 &&
+          resultBytes[1] == 0x4B &&
+          resultBytes[2] == 0x03 &&
+          resultBytes[3] == 0x04;
 
-        final state =
-            previewResult['state']?.toString();
+      if (isZip) {
+        final archive = ZipDecoder().decodeBytes(
+          resultBytes,
+          verify: false,
+        );
 
-        if (state == 'finished') {
-          final url =
-              previewResult['url']?.toString();
+        // الأفضلية لـ color.jpg لأنها نتيجة Free الظاهرة في
+        // سير عمل موقع remove.bg.
+        ArchiveFile? colorFile;
 
-          if (url != null && url.isNotEmpty) {
-            downloadUrl = url;
+        for (final file in archive) {
+          final name = file.name.toLowerCase();
+
+          if (name == 'color.jpg' ||
+              name.endsWith('/color.jpg') ||
+              name == 'color.jpeg' ||
+              name.endsWith('/color.jpeg')) {
+            colorFile = file;
             break;
           }
         }
 
-        if (state == 'failed' ||
-            state == 'error') {
-          throw Exception(
-            'remove.bg فشل في معالجة الصورة.',
-          );
-        }
+        // احتياط إذا تغير اسم الملف.
+        colorFile ??= archive.firstWhere(
+          (file) {
+            final name = file.name.toLowerCase();
 
-        final nextFetch =
-            previewResult['next_fetch_in'];
-
-        if (nextFetch is num && nextFetch > 0) {
-          final milliseconds =
-              (nextFetch * 1.0).clamp(500, 2500).round();
-
-          await Future.delayed(
-            Duration(milliseconds: milliseconds),
-          );
-        }
-
-        final percent =
-            ((attempt + 1) / maxAttempts * 100)
-                .clamp(1, 99)
-                .round();
-
-        onProgress(
-          'جاري إزالة الخلفية... $percent%',
+            return file.isFile &&
+                (name.endsWith('.jpg') ||
+                    name.endsWith('.jpeg') ||
+                    name.endsWith('.png'));
+          },
+          orElse: () => throw Exception(
+            'لم يتم العثور على صورة داخل نتيجة remove.bg',
+          ),
         );
+
+        finalImageBytes = colorFile.readBytes();
+      } else {
+        // أحياناً قد يرجع الموقع الصورة مباشرة.
+        finalImageBytes = resultBytes;
       }
 
-      if (downloadUrl == null || downloadUrl.isEmpty) {
+      if (finalImageBytes == null || finalImageBytes.isEmpty) {
         throw Exception(
-          'انتهت مهلة انتظار معالجة الصورة.',
+          'ملف الصورة الناتج من remove.bg فارغ',
         );
       }
-
-      // ----------------------------------------------------------
-      // 5. Download the FREE result.
-      //
-      // The HAR shows that the free download is a ZIP containing:
-      // color.jpg
-      // alpha.png
-      // shadow_color.jpg
-      // shadow_alpha.png
-      // ----------------------------------------------------------
-
-      onProgress('جاري تنزيل النتيجة المجانية...');
-
-      final downloadResponse = await client.get(
-        Uri.parse(downloadUrl),
-        headers: {
-          'Accept': '*/*',
-          'Origin': 'https://www.remove.bg',
-          'Referer': 'https://www.remove.bg/',
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-              '(KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36',
-          if (cookies.isNotEmpty)
-            'Cookie': _cookieHeader(cookies),
-        },
-      );
-
-      if (downloadResponse.statusCode != 200) {
-        throw Exception(
-          'فشل تنزيل نتيجة remove.bg: '
-          '${downloadResponse.statusCode}',
-        );
-      }
-
-      final zipBytes = downloadResponse.bodyBytes;
-
-      // ----------------------------------------------------------
-      // 6. Extract color.jpg from the downloaded ZIP.
-      // ----------------------------------------------------------
-
-      onProgress('تجهيز الصورة الناتجة...');
-
-      final archive = ZipDecoder().decodeBytes(
-        zipBytes,
-        verify: false,
-      );
-
-      ArchiveFile? colorFile;
-
-      for (final file in archive) {
-        if (!file.isFile) continue;
-
-        final normalizedName =
-            file.name.replaceAll('\\', '/').toLowerCase();
-
-        if (normalizedName == 'color.jpg' ||
-            normalizedName.endsWith('/color.jpg')) {
-          colorFile = file;
-          break;
-        }
-      }
-
-      if (colorFile == null) {
-        throw Exception(
-          'لم يتم العثور على color.jpg داخل نتيجة remove.bg.',
-        );
-      }
-
-      final extractedBytes =
-          colorFile.content is List<int>
-              ? List<int>.from(colorFile.content as List<int>)
-              : <int>[];
-
-      if (extractedBytes.isEmpty) {
-        throw Exception(
-          'ملف color.jpg الناتج فارغ.',
-        );
-      }
-
-      final directory =
-          imageFile.parent;
 
       final outputPath =
-          '${directory.path}/emis_removebg_${DateTime.now().millisecondsSinceEpoch}.jpg';
+          '${imageFile.path}_removebg_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
       final outputFile = File(outputPath);
 
       await outputFile.writeAsBytes(
-        extractedBytes,
+        finalImageBytes,
         flush: true,
       );
-
-      onProgress('تمت إزالة الخلفية بنجاح.');
 
       return outputFile;
     } finally {
@@ -603,14 +618,70 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
+  String? _findStringRecursively(
+    dynamic object,
+    List<String> wantedKeys,
+  ) {
+    if (object is Map) {
+      for (final key in wantedKeys) {
+        final value = object[key];
+
+        if (value != null &&
+            value is String &&
+            value.trim().isNotEmpty) {
+          return value;
+        }
+      }
+
+      for (final value in object.values) {
+        final result = _findStringRecursively(
+          value,
+          wantedKeys,
+        );
+
+        if (result != null) {
+          return result;
+        }
+      }
+    }
+
+    if (object is List) {
+      for (final value in object) {
+        final result = _findStringRecursively(
+          value,
+          wantedKeys,
+        );
+
+        if (result != null) {
+          return result;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  String _decodeJsonUrl(String value) {
+    var result = value;
+
+    try {
+      result = jsonDecode('"$value"') as String;
+    } catch (_) {
+      result = value
+          .replaceAll(r'\/', '/')
+          .replaceAll(r'\u0026', '&');
+    }
+
+    return result;
+  }
+
   // ============================================================
-  // Image preview
+  // IMAGE PREVIEW
   // ============================================================
 
   Future<void> _showImagePreviewDialog(File imageFile) async {
     File currentImage = imageFile;
     bool isProcessing = false;
-    String processingMessage = 'جاري إزالة الخلفية...';
 
     await showDialog(
       context: context,
@@ -629,143 +700,175 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    height: 220,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(
-                        color: Colors.grey.shade300,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      height: 220,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(
+                          color: Colors.grey.shade300,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: InteractiveViewer(
+                          panEnabled: true,
+                          boundaryMargin:
+                              const EdgeInsets.all(20),
+                          minScale: 0.5,
+                          maxScale: 4,
+                          child: Image.file(
+                            currentImage,
+                            fit: BoxFit.contain,
+                            errorBuilder: (
+                              context,
+                              error,
+                              stackTrace,
+                            ) {
+                              return const Center(
+                                child: Icon(
+                                  Icons.broken_image,
+                                  size: 60,
+                                  color: Colors.grey,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       ),
                     ),
-                    child: InteractiveViewer(
-                      panEnabled: true,
-                      boundaryMargin:
-                          const EdgeInsets.all(20),
-                      minScale: 0.5,
-                      maxScale: 4,
-                      child: Image.file(
-                        currentImage,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'يمكنك تقريب الصورة لضبطها بدقة',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 15),
 
-                  if (isProcessing)
-                    Padding(
-                      padding:
-                          const EdgeInsets.all(8.0),
-                      child: Column(
+                    const SizedBox(height: 10),
+
+                    const Text(
+                      'يمكنك تقريب الصورة لمراجعتها قبل اعتمادها',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 12,
+                      ),
+                    ),
+
+                    const SizedBox(height: 15),
+
+                    if (isProcessing)
+                      const Column(
                         children: [
-                          const CircularProgressIndicator(),
-                          const SizedBox(height: 10),
+                          CircularProgressIndicator(),
+                          SizedBox(height: 12),
                           Text(
-                            processingMessage,
+                            'جاري رفع الصورة ومعالجة الخلفية...',
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.blue,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+                          SizedBox(height: 5),
+                          Text(
+                            'يرجى الانتظار',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
                         ],
-                      ),
-                    )
-                  else
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        setDialogState(() {
-                          isProcessing = true;
-                          processingMessage =
-                              'جاري الاتصال بـ remove.bg...';
-                        });
-
-                        try {
-                          final result =
-                              await _removeBackgroundUsingRemoveBgWebsite(
-                            currentImage,
-                            (message) {
-                              if (context.mounted) {
-                                setDialogState(() {
-                                  processingMessage =
-                                      message;
-                                });
-                              }
-                            },
-                          );
-
-                          if (result != null &&
-                              context.mounted) {
-                            setDialogState(() {
-                              currentImage = result;
-                              isProcessing = false;
-                              processingMessage =
-                                  'تمت إزالة الخلفية بنجاح';
-                            });
-                          }
-                        } catch (e) {
-                          debugPrint(
-                            'Remove.bg error: $e',
-                          );
-
-                          if (context.mounted) {
-                            setDialogState(() {
-                              isProcessing = false;
-                            });
-
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'فشل حذف الخلفية: $e',
-                                ),
-                                backgroundColor:
-                                    Colors.red,
-                                duration:
-                                    const Duration(
-                                  seconds: 5,
-                                ),
-                              ),
+                      )
+                    else
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            setDialogState(
+                              () => isProcessing = true,
                             );
-                          }
-                        }
-                      },
-                      icon: const Icon(
-                        Icons.auto_fix_high,
-                        color: Colors.black87,
-                      ),
-                      label: const Text(
-                        'حذف الخلفية',
-                        style: TextStyle(
-                          color: Colors.black87,
-                          fontWeight: FontWeight.bold,
+
+                            try {
+                              final processed =
+                                  await _removeBackgroundUsingWebsite(
+                                currentImage,
+                              );
+
+                              if (processed == null) {
+                                throw Exception(
+                                  'لم يتم الحصول على الصورة المعالجة',
+                                );
+                              }
+
+                              if (!mounted) return;
+
+                              setDialogState(() {
+                                currentImage = processed;
+                                isProcessing = false;
+                              });
+
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'تمت إزالة الخلفية بنجاح',
+                                  ),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            } catch (e) {
+                              debugPrint(
+                                'Remove.bg error: $e',
+                              );
+
+                              if (!mounted) return;
+
+                              setDialogState(
+                                () => isProcessing = false,
+                              );
+
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'تعذر إزالة الخلفية: $e',
+                                  ),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(
+                            Icons.auto_fix_high,
+                            color: Colors.black87,
+                          ),
+                          label: const Text(
+                            'حذف الخلفية',
+                            style: TextStyle(
+                              color: Colors.black87,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                Colors.amberAccent,
+                            padding:
+                                const EdgeInsets.symmetric(
+                              vertical: 13,
+                            ),
+                          ),
                         ),
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            Colors.amberAccent,
-                      ),
-                    ),
-                ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
                   onPressed: isProcessing
                       ? null
-                      : () =>
-                          Navigator.pop(dialogContext),
+                      : () {
+                          Navigator.pop(dialogContext);
+                        },
                   child: const Text('إلغاء'),
                 ),
                 ElevatedButton(
@@ -773,13 +876,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                       ? null
                       : () {
                           setState(() {
-                            _pickedImage =
-                                currentImage;
+                            _pickedImage = currentImage;
                           });
 
-                          Navigator.pop(
-                            dialogContext,
-                          );
+                          Navigator.pop(dialogContext);
                         },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
@@ -799,33 +899,33 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     );
   }
 
-  Future<void> _pickImage(
-    ImageSource source,
-  ) async {
+  // ============================================================
+  // PICK IMAGE
+  // ============================================================
+
+  Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
 
       final picked = await picker.pickImage(
         source: source,
-        imageQuality: 80,
+        imageQuality: 90,
+        maxWidth: 2500,
+        maxHeight: 2500,
       );
 
-      if (picked != null) {
+      if (picked != null && mounted) {
         await _showImagePreviewDialog(
           File(picked.path),
         );
       }
     } catch (e) {
-      debugPrint(
-        'خطأ في اختيار الصورة: $e',
-      );
+      debugPrint('خطأ في اختيار الصورة: $e');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'تعذر فتح الكاميرا أو معرض الصور',
-            ),
+            content: Text('تعذر فتح الكاميرا أو معرض الصور'),
             backgroundColor: Colors.red,
           ),
         );
@@ -849,6 +949,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     );
   }
 
+  // ============================================================
+  // UPLOAD IMAGE TO EMIS
+  // ============================================================
+
   Future<String?> _uploadImageToEmisServer(
     File imageFile,
   ) async {
@@ -859,48 +963,54 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       ),
     );
 
-    request.headers['Authorization'] =
-        widget.token;
-
-    request.headers['Accept'] =
-        'application/json';
+    request.headers['Authorization'] = widget.token;
+    request.headers['Accept'] = 'application/json';
 
     request.files.add(
       await http.MultipartFile.fromPath(
         'image',
         imageFile.path,
-        filename: 'avatar.png',
+        filename: 'avatar.jpg',
       ),
     );
 
     try {
-      final streamedResponse =
-          await request.send();
+      final streamedResponse = await request.send();
+
+      final responseData =
+          await streamedResponse.stream.bytesToString();
+
+      debugPrint(
+        'رفع صورة EMIS: ${streamedResponse.statusCode}',
+      );
 
       if (streamedResponse.statusCode == 200) {
-        final responseData =
-            await streamedResponse.stream
-                .bytesToString();
+        final jsonResponse = jsonDecode(responseData);
 
-        final jsonResponse =
-            jsonDecode(responseData);
-
-        return jsonResponse['imageUrl'];
+        if (jsonResponse is Map) {
+          return jsonResponse['imageUrl']?.toString();
+        }
       }
 
       debugPrint(
-        'فشل رفع صورة EMIS: ${streamedResponse.statusCode}',
+        'استجابة رفع الصورة: $responseData',
       );
     } catch (e) {
       debugPrint(
-        'خطأ في رفع الصورة: $e',
+        'خطأ في رفع الصورة إلى EMIS: $e',
       );
     }
 
     return null;
   }
 
+  // ============================================================
+  // SAVE STUDENT
+  // ============================================================
+
   Future<void> _saveStudentData() async {
+    if (_studentData == null) return;
+
     setState(() => _isSaving = true);
 
     try {
@@ -910,9 +1020,22 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           _pickedImage!,
         );
 
-        if (newImageUrl != null) {
-          _studentData!['imageUrl'] =
-              newImageUrl;
+        if (newImageUrl != null &&
+            newImageUrl.isNotEmpty) {
+          _studentData!['imageUrl'] = newImageUrl;
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'تعذر رفع صورة الطالب',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+
+          return;
         }
       }
 
@@ -924,41 +1047,40 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         url,
         headers: {
           'Authorization': widget.token,
-          'Content-Type':
-              'application/json',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: jsonEncode(_studentData),
       );
 
+      if (!mounted) return;
+
       if (response.statusCode == 200 ||
           response.statusCode == 204) {
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(
-            const SnackBar(
-              content: Text(
-                'تم الحفظ بنجاح!',
-              ),
-              backgroundColor:
-                  Colors.green,
-            ),
-          );
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تم الحفظ بنجاح!'),
+            backgroundColor: Colors.green,
+          ),
+        );
 
-          Navigator.pop(context);
-        }
+        Navigator.pop(context);
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(
-            const SnackBar(
-              content: Text(
-                'فشل الحفظ! تأكد من المدخلات',
-              ),
-              backgroundColor:
-                  Colors.red,
+        debugPrint(
+          'Update student status: ${response.statusCode}',
+        );
+        debugPrint(
+          'Update student response: ${response.body}',
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'فشل الحفظ! تأكد من المدخلات',
             ),
-          );
-        }
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       debugPrint(
@@ -966,25 +1088,23 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'خطأ في الاتصال',
-            ),
-            backgroundColor:
-                Colors.red,
+            content: Text('خطأ في الاتصال'),
+            backgroundColor: Colors.red,
           ),
         );
       }
     } finally {
       if (mounted) {
-        setState(
-          () => _isSaving = false,
-        );
+        setState(() => _isSaving = false);
       }
     }
   }
+
+  // ============================================================
+  // DYNAMIC FIELDS
+  // ============================================================
 
   List<Widget> _buildDynamicFields(
     Map<String, dynamic> dataMap,
@@ -1017,12 +1137,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
             ),
             elevation: 1,
             shape: RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Padding(
-              padding:
-                  const EdgeInsets.all(15),
+              padding: const EdgeInsets.all(15),
               child: Column(
                 crossAxisAlignment:
                     CrossAxisAlignment.start,
@@ -1031,10 +1149,8 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     arabicLabel,
                     style: TextStyle(
                       fontSize: 16,
-                      fontWeight:
-                          FontWeight.bold,
-                      color:
-                          Colors.indigo.shade400,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.indigo.shade400,
                     ),
                   ),
                   const SizedBox(height: 15),
@@ -1049,7 +1165,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           ),
         );
       } else if (value is List) {
-        // تخطي القوائم المعقدة
+        // القوائم المعقدة لا تعرض كحقول نصية.
       } else {
         widgets.add(
           PlainTextField(
@@ -1068,12 +1184,19 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     return widgets;
   }
 
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppCore.themeNotifier,
-      builder:
-          (context, currentMode, child) {
+      builder: (
+        context,
+        currentMode,
+        child,
+      ) {
         final isDark =
             currentMode == ThemeMode.dark;
 
@@ -1085,12 +1208,11 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
             ? const Color(0xFF1E1E1E)
             : Colors.white;
 
-        final textColor = isDark
-            ? Colors.white
-            : Colors.black87;
+        final textColor =
+            isDark ? Colors.white : Colors.black87;
 
         String imgUrl =
-            _studentData?['imageUrl'] ?? '';
+            _studentData?['imageUrl']?.toString() ?? '';
 
         if (imgUrl.isNotEmpty &&
             !imgUrl.startsWith('http')) {
@@ -1126,21 +1248,20 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           ),
           body: _isLoading
               ? const Center(
-                  child:
-                      CircularProgressIndicator(),
+                  child: CircularProgressIndicator(),
                 )
               : _studentData == null
                   ? const Center(
-                      child:
-                          Text('فشل جلب البيانات'),
+                      child: Text(
+                        'فشل جلب البيانات',
+                      ),
                     )
                   : Column(
                       children: [
                         Expanded(
                           child: ListView(
                             padding:
-                                const EdgeInsets
-                                    .all(15),
+                                const EdgeInsets.all(15),
                             children: [
                               Center(
                                 child: Stack(
@@ -1150,8 +1271,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                       height: 140,
                                       decoration:
                                           BoxDecoration(
-                                        color:
-                                            Colors.white,
+                                        color: Colors.white,
                                         shape:
                                             BoxShape.circle,
                                         border:
@@ -1161,8 +1281,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                           width: 3,
                                         ),
                                       ),
-                                      child:
-                                          ClipOval(
+                                      child: ClipOval(
                                         child:
                                             _pickedImage !=
                                                     null
@@ -1171,9 +1290,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                                     fit: BoxFit
                                                         .cover,
                                                   )
-                                                : (imgUrl
+                                                : imgUrl
                                                         .isNotEmpty
-                                                    ? Image.network(
+                                                    ? Image
+                                                        .network(
                                                         imgUrl,
                                                         headers: {
                                                           'Authorization':
@@ -1182,21 +1302,32 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                                         fit: BoxFit
                                                             .cover,
                                                         errorBuilder:
-                                                            (c, o, s) =>
-                                                                Icon(
-                                                          Icons.person,
-                                                          size: 80,
-                                                          color: Colors.grey[400],
-                                                        ),
+                                                            (
+                                                          context,
+                                                          error,
+                                                          stackTrace,
+                                                        ) {
+                                                          return Icon(
+                                                            Icons
+                                                                .person,
+                                                            size:
+                                                                80,
+                                                            color: Colors
+                                                                .grey[400],
+                                                          );
+                                                        },
                                                       )
                                                     : Icon(
-                                                        Icons.person,
+                                                        Icons
+                                                            .person,
                                                         size: 80,
-                                                        color:
-                                                            Colors.grey[400],
-                                                      )),
+                                                        color: Colors
+                                                            .grey[400],
+                                                      ),
                                       ),
                                     ),
+
+                                    // الكاميرا
                                     Positioned(
                                       bottom: 0,
                                       right: 0,
@@ -1209,17 +1340,22 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                             IconButton(
                                           icon:
                                               const Icon(
-                                            Icons.camera_alt,
-                                            color: Colors.white,
+                                            Icons
+                                                .camera_alt,
+                                            color: Colors
+                                                .white,
                                             size: 18,
                                           ),
-                                          onPressed:
-                                              () => _pickImage(
-                                            ImageSource.camera,
+                                          onPressed: () =>
+                                              _pickImage(
+                                            ImageSource
+                                                .camera,
                                           ),
                                         ),
                                       ),
                                     ),
+
+                                    // المعرض
                                     Positioned(
                                       bottom: 0,
                                       left: 0,
@@ -1232,13 +1368,16 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                             IconButton(
                                           icon:
                                               const Icon(
-                                            Icons.photo_library,
-                                            color: Colors.white,
+                                            Icons
+                                                .photo_library,
+                                            color: Colors
+                                                .white,
                                             size: 18,
                                           ),
-                                          onPressed:
-                                              () => _pickImage(
-                                            ImageSource.gallery,
+                                          onPressed: () =>
+                                              _pickImage(
+                                            ImageSource
+                                                .gallery,
                                           ),
                                         ),
                                       ),
@@ -1246,36 +1385,36 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                   ],
                                 ),
                               ),
+
                               const SizedBox(
                                 height: 10,
                               ),
+
                               Center(
                                 child:
                                     TextButton.icon(
                                   onPressed:
                                       _deleteCurrentPhoto,
-                                  icon:
-                                      const Icon(
+                                  icon: const Icon(
                                     Icons
                                         .delete_forever,
-                                    color:
-                                        Colors.red,
+                                    color: Colors.red,
                                   ),
-                                  label:
-                                      const Text(
+                                  label: const Text(
                                     'حذف الصورة الحالية',
                                     style: TextStyle(
-                                      color:
-                                          Colors.red,
+                                      color: Colors.red,
                                       fontWeight:
                                           FontWeight.bold,
                                     ),
                                   ),
                                 ),
                               ),
+
                               const SizedBox(
                                 height: 15,
                               ),
+
                               ..._buildDynamicFields(
                                 _studentData!,
                                 isDark,
@@ -1284,53 +1423,41 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                             ],
                           ),
                         ),
+
                         Container(
                           padding:
-                              const EdgeInsets.all(
-                            15,
-                          ),
+                              const EdgeInsets.all(15),
                           color: cardColor,
                           child: SizedBox(
-                            width:
-                                double.infinity,
+                            width: double.infinity,
                             height: 55,
-                            child:
-                                ElevatedButton(
-                              onPressed:
-                                  _isSaving
-                                      ? null
-                                      : _saveStudentData,
+                            child: ElevatedButton(
+                              onPressed: _isSaving
+                                  ? null
+                                  : _saveStudentData,
                               style:
-                                  ElevatedButton
-                                      .styleFrom(
+                                  ElevatedButton.styleFrom(
                                 backgroundColor:
-                                    Colors.green[
-                                        700],
+                                    Colors.green[700],
                                 shape:
                                     RoundedRectangleBorder(
                                   borderRadius:
-                                      BorderRadius
-                                          .circular(
+                                      BorderRadius.circular(
                                     12,
                                   ),
                                 ),
                               ),
                               child: _isSaving
                                   ? const CircularProgressIndicator(
-                                      color:
-                                          Colors.white,
+                                      color: Colors.white,
                                     )
                                   : const Text(
                                       'حفظ',
-                                      style:
-                                          TextStyle(
-                                        fontSize:
-                                            18,
-                                        color: Colors
-                                            .white,
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        color: Colors.white,
                                         fontWeight:
-                                            FontWeight
-                                                .bold,
+                                            FontWeight.bold,
                                       ),
                                     ),
                             ),
@@ -1345,11 +1472,8 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 }
 
 // ================================================================
-// Normal text field
-// ================================================================
-//
-// تم استبدال SpeechTextField بالكامل.
-// لا يوجد أي اعتماد على SpeechRecognizer أو الميكروفون.
+// NORMAL TEXT FIELD
+// لا يوجد ميكروفون هنا.
 // ================================================================
 
 class PlainTextField extends StatefulWidget {
@@ -1375,17 +1499,14 @@ class PlainTextField extends StatefulWidget {
 
 class _PlainTextFieldState
     extends State<PlainTextField> {
-  late TextEditingController _controller;
+  late final TextEditingController _controller;
 
   @override
   void initState() {
     super.initState();
 
-    _controller =
-        TextEditingController(
-      text:
-          widget.initialValue?.toString() ??
-              '',
+    _controller = TextEditingController(
+      text: widget.initialValue?.toString() ?? '',
     );
   }
 
@@ -1407,30 +1528,23 @@ class _PlainTextFieldState
           color: widget.textColor,
           fontSize: 16,
         ),
-        decoration:
-            InputDecoration(
+        decoration: InputDecoration(
           labelText: widget.label,
           labelStyle:
-              const TextStyle(
-            color: Colors.grey,
-          ),
+              const TextStyle(color: Colors.grey),
           filled: true,
-          fillColor:
-              widget.isDark
-                  ? Colors.black12
-                  : Colors.grey[50],
-          border:
-              OutlineInputBorder(
+          fillColor: widget.isDark
+              ? Colors.black12
+              : Colors.grey[50],
+          border: OutlineInputBorder(
             borderRadius:
                 BorderRadius.circular(12),
-            borderSide:
-                BorderSide(
-              color:
-                  Colors.grey.shade300,
+            borderSide: BorderSide(
+              color: Colors.grey.shade300,
             ),
           ),
         ),
       ),
     );
   }
-    }
+}
