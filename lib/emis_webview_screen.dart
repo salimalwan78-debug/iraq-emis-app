@@ -1,39 +1,16 @@
-import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'dashboard_screen.dart';
-
-class EmisWebviewScreen extends StatefulWidget {
-  const EmisWebviewScreen({super.key});
-
-  @override
-  State<EmisWebviewScreen> createState() => _EmisWebviewScreenState();
-}
-
-class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
-  late final WebViewController _controller;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
+var foundToken = searchStorage(localStorage) || searchStorage(sessionStorage);
+        
+        // إذا اكتشفنا المدرسة والـ Token، نرسلها لفلاتر عبر القناة
+        if (schoolMatch && foundToken) {
+            AuthChannel.postMessage(JSON.stringify({
+                schoolId: schoolMatch[1],
+                token: foundToken
+            }));
+        }
+      })();
+    ''';
     
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFFFFFFFF))
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (String url) {
-            if (mounted) setState(() => _isLoading = true);
-          },
-          onPageFinished: (String url) {
-            if (mounted) setState(() => _isLoading = false);
-          },
-          onWebResourceError: (WebResourceError error) {
-            if (mounted) setState(() => _isLoading = false);
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
+    _controller.runJavaScript(jsCode);
   }
 
   @override
@@ -51,9 +28,10 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () => _controller.reload(),
           ),
+          // أبقينا الزر اليدوي كخطة بديلة (Fallback) في حال تأخر السكربت
           IconButton(
             icon: const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
-            tooltip: 'الدخول إلى التطبيق بعد تسجيل الدخول',
+            tooltip: 'تخطي للوحة التحكم',
             onPressed: () {
               Navigator.pushReplacement(
                 context,
