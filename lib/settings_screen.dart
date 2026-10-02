@@ -9,6 +9,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  double _volumeLevel = 0.5; // مستوى الصوت الافتراضي
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
@@ -43,19 +45,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Card(
                   color: cardColor, elevation: 2,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                  child: ListTile(
-                    leading: Icon(AppCore.isAudioMuted ? Icons.volume_off : Icons.music_note, color: Colors.blue, size: 30),
-                    title: Text('الموسيقى الهادئة', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
-                    trailing: Switch(
-                      value: !AppCore.isAudioMuted, activeColor: Colors.blue,
-                      onChanged: (val) async { await AppCore.toggleAudio(); setState(() {}); },
-                    ),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: Icon(AppCore.isAudioMuted ? Icons.volume_off : Icons.music_note, color: Colors.blue, size: 30),
+                        title: Text('الموسيقى الهادئة', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                        trailing: Switch(
+                          value: !AppCore.isAudioMuted, activeColor: Colors.blue,
+                          onChanged: (val) async { await AppCore.toggleAudio(); setState(() {}); },
+                        ),
+                      ),
+                      // شريط رفع وتخفيض الصوت الهادئ (Volume Slider)
+                      if (!AppCore.isAudioMuted)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.volume_down, color: Colors.grey),
+                              Expanded(
+                                child: Slider(
+                                  value: _volumeLevel,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  divisions: 10,
+                                  label: '${(_volumeLevel * 100).round()}%',
+                                  onChanged: (val) {
+                                    setState(() => _volumeLevel = val);
+                                    AppCore.audioPlayer.setVolume(val); // التحكم الفعلي بمرونة الصوتي
+                                  },
+                                ),
+                              ),
+                              const Icon(Icons.volume_up, color: Colors.grey),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 
                 const Spacer(),
                 
-                // النصوص المطلوبة في صفحة الإعدادات
                 const Text('نسخة غير رسمية', style: TextStyle(color: Colors.grey, fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 5),
                 const Text('تصميم/ علي الفتلاوي / ثانوية الديوانية للمتميزين', style: TextStyle(color: Colors.grey, fontSize: 14)),
