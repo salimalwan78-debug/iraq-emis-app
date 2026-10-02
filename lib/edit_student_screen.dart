@@ -359,7 +359,7 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
       if (status.isGranted) {
         bool available = await _speech.initialize(
           onStatus: (status) { if (status == 'done' || status == 'notListening') setState(() => _isListening = false); },
-          onError: (error) => setState(() => _isListening,
+          onError: (error) => setState(() => _isListening = false), // تم تصحيح القوس هنا بنجاح
         );
         if (available) {
           setState(() => _isListening = true);
