@@ -21,7 +21,7 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
-      // 1. فتح قناة اتصال لاستقبال الـ Token ورقم المدرسة من الجافاسكربت
+      // فتح قناة اتصال لاستقبال الـ Token ورقم المدرسة من الجافاسكربت
       ..addJavaScriptChannel(
         'AuthChannel',
         onMessageReceived: (JavaScriptMessage message) {
@@ -30,12 +30,16 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             final schoolId = data['schoolId'];
             final token = data['token'];
             
-            // إذا تم التقاط البيانات بنجاح، نغلق المتصفح وننتقل للوحة التحكم
+            // إذا تم التقاط البيانات بنجاح، نغلق المتصفح ونمررها لشاشة لوحة التحكم
             if (schoolId != null && token != null) {
-              // يمكنك هنا حفظ الـ token في SharedPreferences لاستخدامه لاحقاً
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (context) => const DashboardScreen()),
+                MaterialPageRoute(
+                  builder: (context) => DashboardScreen(
+                    token: token.toString(),
+                    schoolId: schoolId.toString(),
+                  ),
+                ),
               );
             }
           } catch (e) {
@@ -56,12 +60,15 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
           onUrlChange: (UrlChange change) {
             _injectTokenScanner();
           },
+          onWebResourceError: (WebResourceError error) {
+            if (mounted) setState(() => _isLoading = false);
+          },
         ),
       )
       ..loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
   }
 
-  // 2. حقن منطق الاكتشاف الخاص بك بداخل المتصفح
+  // حقن منطق الاكتشاف بداخل المتصفح
   void _injectTokenScanner() {
     const String jsCode = r'''
       (function() {
@@ -109,6 +116,7 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             } catch(e) {}
             return null;
         }
+
         var foundToken = searchStorage(localStorage) || searchStorage(sessionStorage);
         
         // إذا اكتشفنا المدرسة والـ Token، نرسلها لفلاتر عبر القناة
@@ -139,14 +147,16 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () => _controller.reload(),
           ),
-          // أبقينا الزر اليدوي كخطة بديلة (Fallback) في حال تأخر السكربت
           IconButton(
             icon: const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
             tooltip: 'تخطي للوحة التحكم',
             onPressed: () {
+              // تمرير قيم فارغة كخطة بديلة في حال التخطي اليدوي
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (context) => const DashboardScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const DashboardScreen(token: '', schoolId: ''),
+                ),
               );
             },
           ),
