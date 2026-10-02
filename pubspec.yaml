@@ -1,6 +1,9 @@
 name: iraq_emis
-description: "نظام إدارة معلومات التعليم في العراق - EMIS"
+description: A new Flutter project for Iraq EMIS System.
+
+# Prevent accidental publishing to pub.dev.
 publish_to: 'none'
+
 version: 1.0.0+1
 
 environment:
@@ -9,19 +12,29 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_localizations:
-    sdk: flutter
-  lottie: ^3.1.2
-  video_player: ^2.8.6
-  webview_flutter: ^4.7.0
+
+  # The following adds the Cupertino Icons font to your application.
+  cupertino_icons: ^1.0.2
+  
+  # مكتبة الاتصال بالسيرفر وجلب البيانات
+  http: ^1.1.0
+  
+  # مكتبة متصفح الويب لتسجيل الدخول
+  webview_flutter: ^4.4.2
+  
+  # مكتبة تشغيل الصوتيات
+  audioplayers: ^5.2.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+
+  flutter_lints: ^2.0.0
 
 flutter:
   uses-material-design: true
 
+  # مسارات الصور والملفات الصوتية
   assets:
-    - assets/intro.mp4
+    - assets/images/avatar.jpg
+    - assets/relax.mp3
