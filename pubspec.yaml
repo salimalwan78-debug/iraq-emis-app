@@ -1,7 +1,6 @@
 name: iraq_emis
 description: A new Flutter project for Iraq EMIS System.
 
-# Prevent accidental publishing to pub.dev.
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -13,36 +12,28 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # مكتبة الترجمة لدعم اللغة العربية وتوجيه الشاشة من اليمين لليسار (RTL)
   flutter_localizations:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
   cupertino_icons: ^1.0.2
-  
-  # مكتبة الاتصال بالسيرفر وجلب البيانات
   http: ^1.1.0
-  
-  # مكتبة متصفح الويب لتسجيل الدخول
   webview_flutter: ^4.4.2
-  
-  # مكتبة تشغيل الصوتيات
   audioplayers: ^5.2.1
-
-  # مكتبة تشغيل الفيديو للشاشة الافتتاحية
   video_player: ^2.8.2
+  
+  # مكتبات الكاميرا والصوت (للميزات الذكية الجديدة)
+  image_picker: ^1.0.7
+  speech_to_text: ^6.5.1
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^2.0.0
 
 flutter:
   uses-material-design: true
-
-  # تم تصحيح المسار ليتطابق مع ما رفعته في GitHub
   assets:
-    - assets/avatar.jpg
+    - assets/avatar.png
     - assets/relax.mp3
     - assets/intro.mp4
