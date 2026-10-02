@@ -106,6 +106,14 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         r'''<meta[^>]+content=["']([^"']+)["'][^>]+name=["']csrf-token["']''',
         caseSensitive: false,
       ),
+      RegExp(
+        r'''csrfToken\s*[:=]\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'''csrf_token\s*[:=]\s*["']([^"']+)["']''',
+        caseSensitive: false,
+      ),
     ];
 
     for (final pattern in patterns) {
@@ -121,18 +129,58 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     final raw = headers['set-cookie'];
     if (raw == null || raw.isEmpty) return '';
 
-    // dart:io/http gives Set-Cookie as one combined header on some
-    // platforms and as separate values on others. For the remove.bg
-    // flow we only need cookie name=value pairs.
-    final parts = raw.split(RegExp(r',\s*(?=[^;,=\s]+=[^;,]+)'));
-    final cookies = <String>[];
+    // Extract only cookie name=value pairs. This also tolerates an
+    // Expires=... attribute containing commas.
+    final cookies = <String, String>{};
+    final matches = RegExp(
+      r'(?:^|,\s*)([A-Za-z0-9_\-]+)=([^;,]*)(?:;|,|$)',
+    ).allMatches(raw);
 
-    for (final part in parts) {
-      final first = part.split(';').first.trim();
-      if (first.contains('=')) cookies.add(first);
+    for (final match in matches) {
+      final name = match.group(1);
+      final value = match.group(2);
+      if (name != null && value != null) {
+        cookies[name] = value;
+      }
     }
 
-    return cookies.join('; ');
+    // Fallback for the common simple Set-Cookie form.
+    if (cookies.isEmpty) {
+      for (final part in raw.split(',')) {
+        final first = part.split(';').first.trim();
+        final eq = first.indexOf('=');
+        if (eq > 0) {
+          cookies[first.substring(0, eq).trim()] =
+              first.substring(eq + 1).trim();
+        }
+      }
+    }
+
+    return cookies.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join('; ');
+  }
+
+  String _mergeCookieHeaders(String first, String second) {
+    final cookies = <String, String>{};
+
+    void add(String value) {
+      if (value.isEmpty) return;
+      for (final part in value.split(';')) {
+        final item = part.trim();
+        final eq = item.indexOf('=');
+        if (eq <= 0) continue;
+        cookies[item.substring(0, eq).trim()] =
+            item.substring(eq + 1).trim();
+      }
+    }
+
+    add(first);
+    add(second);
+
+    return cookies.entries
+        .map((entry) => '${entry.key}=${entry.value}')
+        .join('; ');
   }
 
   String? _extractTrustToken(String body) {
@@ -214,25 +262,55 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         'Pragma': 'no-cache',
       };
 
-      // 1) Open /upload and obtain CSRF + cookies.
-      final pageResponse = await client.get(
-        Uri.parse(uploadPageUrl),
+      // 1) Start a browser-like session. The website's private upload
+      // workflow uses the CSRF token AND the cookies created by the first
+      // page request. A plain Dart http.Client does not keep cookies by
+      // itself, so we carry them explicitly.
+      final homeResponse = await client.get(
+        Uri.parse('https://www.remove.bg/'),
         headers: browserHeaders,
       );
 
-      if (pageResponse.statusCode < 200 || pageResponse.statusCode >= 400) {
+      if (homeResponse.statusCode < 200 || homeResponse.statusCode >= 400) {
         throw Exception(
-          'فشل فتح صفحة remove.bg/upload: ${pageResponse.statusCode}',
+          'فشل فتح remove.bg: ${homeResponse.statusCode}',
         );
       }
 
-      final pageHtml = utf8.decode(
-        pageResponse.bodyBytes,
+      final homeHtml = utf8.decode(
+        homeResponse.bodyBytes,
         allowMalformed: true,
       );
 
-      final csrfToken = _extractCsrfToken(pageHtml);
-      final cookieHeader = _cookieHeader(pageResponse.headers);
+      final uploadResponse = await client.get(
+        Uri.parse(uploadPageUrl),
+        headers: {
+          ...browserHeaders,
+          'Referer': 'https://www.remove.bg/',
+        },
+      );
+
+      if (uploadResponse.statusCode < 200 ||
+          uploadResponse.statusCode >= 400) {
+        throw Exception(
+          'فشل فتح صفحة remove.bg/upload: ${uploadResponse.statusCode}',
+        );
+      }
+
+      final uploadHtml = utf8.decode(
+        uploadResponse.bodyBytes,
+        allowMalformed: true,
+      );
+
+      // Prefer the token from the root page (this is the sequence used by
+      // the known website workflow), then fall back to /upload.
+      final csrfToken = _extractCsrfToken(homeHtml) ??
+          _extractCsrfToken(uploadHtml);
+
+      final cookieHeader = _mergeCookieHeaders(
+        _cookieHeader(homeResponse.headers),
+        _cookieHeader(uploadResponse.headers),
+      );
 
       debugPrint(
         'remove.bg CSRF: ${csrfToken == null ? "غير موجود" : "تم الحصول عليه"}',
@@ -242,7 +320,9 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       );
 
       if (csrfToken == null || csrfToken.isEmpty) {
-        throw Exception('لم يتم العثور على CSRF token في صفحة remove.bg');
+        throw Exception(
+          'لم يتم العثور على CSRF token في remove.bg',
+        );
       }
 
       // 2) Request the private trust token.
@@ -252,6 +332,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         'Referer': uploadPageUrl,
         'Origin': 'https://www.remove.bg',
         'X-CSRF-Token': csrfToken,
+        'X-Requested-With': 'XMLHttpRequest',
       };
 
       if (cookieHeader.isNotEmpty) {
@@ -280,7 +361,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           trustResponse.statusCode >= 300) {
         throw Exception(
           'فشل الحصول على trust token من remove.bg: '
-          '${trustResponse.statusCode}',
+          '${trustResponse.statusCode}\n$trustBody',
         );
       }
 
@@ -304,6 +385,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         'Origin': 'https://www.remove.bg',
         'Referer': uploadPageUrl,
         'X-CSRF-Token': csrfToken,
+        'X-Requested-With': 'XMLHttpRequest',
       });
 
       if (cookieHeader.isNotEmpty) {
