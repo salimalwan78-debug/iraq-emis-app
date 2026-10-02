@@ -74,40 +74,29 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
       if (response.statusCode == 200) {
         if (!mounted) return;
-
         setState(() {
           _studentData = jsonDecode(
             utf8.decode(response.bodyBytes),
           ) as Map<String, dynamic>;
           _isLoading = false;
         });
-      } else {
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
+      } else if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       debugPrint('خطأ في جلب بيانات الطالب: $e');
-
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   // ============================================================
   // REMOVE.BG WEBSITE WORKFLOW
   // ============================================================
+  // This intentionally follows the website upload flow rather than
+  // the official API: /upload -> /trust_tokens -> /images -> inline.
+  // The web workflow is private and can change at any time.
 
-  Future<String?> _getRemoveBgTrustToken(
-    http.Client client,
-    Uri uploadPageUri,
-    String html,
-    Map<String, String> headers,
-  ) async {
-    String? trustToken;
-
-    // بعض إصدارات الصفحة تضع token داخل HTML.
+  String? _extractCsrfToken(String html) {
     final patterns = <RegExp>[
       RegExp(
         r'''<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)''',
@@ -117,6 +106,37 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         r'''<meta[^>]+content=["']([^"']+)["'][^>]+name=["']csrf-token["']''',
         caseSensitive: false,
       ),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(html);
+      if (match != null && match.group(1) != null) {
+        return match.group(1);
+      }
+    }
+    return null;
+  }
+
+  String _cookieHeader(Map<String, String> headers) {
+    final raw = headers['set-cookie'];
+    if (raw == null || raw.isEmpty) return '';
+
+    // dart:io/http gives Set-Cookie as one combined header on some
+    // platforms and as separate values on others. For the remove.bg
+    // flow we only need cookie name=value pairs.
+    final parts = raw.split(RegExp(r',\s*(?=[^;,=\s]+=[^;,]+)'));
+    final cookies = <String>[];
+
+    for (final part in parts) {
+      final first = part.split(';').first.trim();
+      if (first.contains('=')) cookies.add(first);
+    }
+
+    return cookies.join('; ');
+  }
+
+  String? _extractTrustToken(String body) {
+    final patterns = <RegExp>[
       RegExp(
         r'''useToken\(["']([^"']+)["']\)''',
         caseSensitive: false,
@@ -130,94 +150,50 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         caseSensitive: false,
       ),
       RegExp(
-        r'''trust_token["']?\s*[:=]\s*["']([^"']+)["']''',
+        r'''["']?(?:trust_token|trustToken|token)["']?\s*[:=]\s*["']([^"']+)["']''',
         caseSensitive: false,
       ),
     ];
 
     for (final pattern in patterns) {
-      final match = pattern.firstMatch(html);
-      if (match != null && match.groupCount >= 1) {
-        trustToken = match.group(1);
-        if (trustToken != null && trustToken.isNotEmpty) {
-          break;
-        }
+      final match = pattern.firstMatch(body);
+      if (match != null && match.group(1) != null) {
+        final token = match.group(1)!.trim();
+        if (token.isNotEmpty) return token;
       }
     }
 
-    // إذا لم يوجد token في HTML، نحاول endpoint الخاص بالموقع.
-    if (trustToken == null || trustToken.isEmpty) {
-      try {
-        final response = await client.post(
-          Uri.parse('https://www.remove.bg/trust_tokens'),
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json',
-            'Referer': uploadPageUri.toString(),
-            'Origin': 'https://www.remove.bg',
-          },
-        );
-
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          final body = response.body;
-
-          try {
-            final decoded = jsonDecode(body);
-
-            if (decoded is Map) {
-              final candidates = [
-                decoded['trust_token'],
-                decoded['trustToken'],
-                decoded['token'],
-                decoded['csrf_token'],
-                decoded['csrfToken'],
-              ];
-
-              for (final candidate in candidates) {
-                if (candidate != null &&
-                    candidate.toString().trim().isNotEmpty) {
-                  trustToken = candidate.toString();
-                  break;
-                }
-              }
-
-              if (trustToken == null) {
-                final data = decoded['data'];
-
-                if (data is Map) {
-                  final nestedCandidates = [
-                    data['trust_token'],
-                    data['trustToken'],
-                    data['token'],
-                  ];
-
-                  for (final candidate in nestedCandidates) {
-                    if (candidate != null &&
-                        candidate.toString().trim().isNotEmpty) {
-                      trustToken = candidate.toString();
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          } catch (_) {
-            final match = RegExp(
-              r'''["']?(?:trust_token|trustToken|token)["']?\s*[:=]\s*["']([^"']+)["']''',
-              caseSensitive: false,
-            ).firstMatch(body);
-
-            if (match != null) {
-              trustToken = match.group(1);
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final values = [
+          decoded['trust_token'],
+          decoded['trustToken'],
+          decoded['token'],
+          decoded['csrf_token'],
+          decoded['csrfToken'],
+        ];
+        for (final value in values) {
+          if (value != null && value.toString().trim().isNotEmpty) {
+            return value.toString().trim();
+          }
+        }
+        final data = decoded['data'];
+        if (data is Map) {
+          for (final value in [
+            data['trust_token'],
+            data['trustToken'],
+            data['token'],
+          ]) {
+            if (value != null && value.toString().trim().isNotEmpty) {
+              return value.toString().trim();
             }
           }
         }
-      } catch (e) {
-        debugPrint('خطأ في الحصول على trust token: $e');
       }
-    }
+    } catch (_) {}
 
-    return trustToken;
+    return null;
   }
 
   Future<File?> _removeBackgroundUsingWebsite(File imageFile) async {
@@ -226,7 +202,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     try {
       const uploadPageUrl = 'https://www.remove.bg/upload';
 
-      final baseHeaders = <String, String>{
+      final browserHeaders = <String, String>{
         'User-Agent':
             'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 '
             '(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
@@ -238,20 +214,15 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         'Pragma': 'no-cache',
       };
 
-      // ----------------------------------------------------------
-      // 1. فتح صفحة /upload
-      // ----------------------------------------------------------
-
+      // 1) Open /upload and obtain CSRF + cookies.
       final pageResponse = await client.get(
         Uri.parse(uploadPageUrl),
-        headers: baseHeaders,
+        headers: browserHeaders,
       );
 
-      if (pageResponse.statusCode < 200 ||
-          pageResponse.statusCode >= 400) {
+      if (pageResponse.statusCode < 200 || pageResponse.statusCode >= 400) {
         throw Exception(
-          'فشل فتح صفحة remove.bg/upload: '
-          '${pageResponse.statusCode}',
+          'فشل فتح صفحة remove.bg/upload: ${pageResponse.statusCode}',
         );
       }
 
@@ -260,50 +231,101 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         allowMalformed: true,
       );
 
-      final trustToken = await _getRemoveBgTrustToken(
-        client,
-        Uri.parse(uploadPageUrl),
-        pageHtml,
-        baseHeaders,
+      final csrfToken = _extractCsrfToken(pageHtml);
+      final cookieHeader = _cookieHeader(pageResponse.headers);
+
+      debugPrint(
+        'remove.bg CSRF: ${csrfToken == null ? "غير موجود" : "تم الحصول عليه"}',
+      );
+      debugPrint(
+        'remove.bg cookies: ${cookieHeader.isEmpty ? "غير موجودة" : "تم الحصول عليها"}',
+      );
+
+      if (csrfToken == null || csrfToken.isEmpty) {
+        throw Exception('لم يتم العثور على CSRF token في صفحة remove.bg');
+      }
+
+      // 2) Request the private trust token.
+      final trustHeaders = <String, String>{
+        ...browserHeaders,
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': uploadPageUrl,
+        'Origin': 'https://www.remove.bg',
+        'X-CSRF-Token': csrfToken,
+      };
+
+      if (cookieHeader.isNotEmpty) {
+        trustHeaders['Cookie'] = cookieHeader;
+      }
+
+      final trustResponse = await client.post(
+        Uri.parse('https://www.remove.bg/trust_tokens'),
+        headers: trustHeaders,
+      );
+
+      final trustBody = utf8.decode(
+        trustResponse.bodyBytes,
+        allowMalformed: true,
       );
 
       debugPrint(
-        'remove.bg trust token: '
-        '${trustToken == null ? "غير موجود" : "تم الحصول عليه"}',
+        'remove.bg /trust_tokens status: ${trustResponse.statusCode}',
+      );
+      debugPrint(
+        'remove.bg /trust_tokens response: '
+        '${trustBody.length > 1000 ? trustBody.substring(0, 1000) : trustBody}',
       );
 
-      // ----------------------------------------------------------
-      // 2. إرسال الصورة إلى /images
-      // ----------------------------------------------------------
+      if (trustResponse.statusCode < 200 ||
+          trustResponse.statusCode >= 300) {
+        throw Exception(
+          'فشل الحصول على trust token من remove.bg: '
+          '${trustResponse.statusCode}',
+        );
+      }
 
+      final trustToken = _extractTrustToken(trustBody);
+
+      if (trustToken == null || trustToken.isEmpty) {
+        throw Exception('لم يتم العثور على trust token في استجابة remove.bg');
+      }
+
+      debugPrint('remove.bg trust token: تم الحصول عليه');
+
+      // 3) Upload using the actual website field name: image[original].
       final imageRequest = http.MultipartRequest(
         'POST',
         Uri.parse('https://www.remove.bg/images'),
       );
 
       imageRequest.headers.addAll({
-        ...baseHeaders,
+        ...browserHeaders,
         'Accept': 'application/json, text/plain, */*',
         'Origin': 'https://www.remove.bg',
         'Referer': uploadPageUrl,
+        'X-CSRF-Token': csrfToken,
       });
 
-      if (trustToken != null && trustToken.isNotEmpty) {
-        imageRequest.headers['X-CSRF-Token'] = trustToken;
-        imageRequest.fields['trust_token'] = trustToken;
+      if (cookieHeader.isNotEmpty) {
+        imageRequest.headers['Cookie'] = cookieHeader;
       }
+
+      imageRequest.fields['trust_token'] = trustToken;
+
+      final fileName = imageFile.uri.pathSegments.isNotEmpty
+          ? imageFile.uri.pathSegments.last
+          : 'student.jpg';
 
       imageRequest.files.add(
         await http.MultipartFile.fromPath(
-          'image_file',
+          'image[original]',
           imageFile.path,
-          filename: 'student.jpg',
+          filename: fileName,
         ),
       );
 
       final uploadResponse = await imageRequest.send();
       final uploadBytes = await uploadResponse.stream.toBytes();
-
       final uploadBody = utf8.decode(
         uploadBytes,
         allowMalformed: true,
@@ -314,71 +336,81 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       );
       debugPrint(
         'remove.bg /images response: '
-        '${uploadBody.length > 1000 ? uploadBody.substring(0, 1000) : uploadBody}',
+        '${uploadBody.length > 2000 ? uploadBody.substring(0, 2000) : uploadBody}',
       );
 
       if (uploadResponse.statusCode < 200 ||
           uploadResponse.statusCode >= 300) {
         throw Exception(
-          'فشل رفع الصورة إلى remove.bg: '
-          '${uploadResponse.statusCode}',
+          'فشل رفع الصورة إلى remove.bg: ${uploadResponse.statusCode} '
+          '$uploadBody',
         );
       }
 
-      // ----------------------------------------------------------
-      // 3. استخراج image id
-      // ----------------------------------------------------------
-
+      // 4) Extract the image id. Some versions return it directly;
+      // others return a URL that contains the id.
       String? imageId;
+      String? inlineUrl;
 
       try {
         final decoded = jsonDecode(uploadBody);
-
         if (decoded is Map) {
-          final candidates = [
+          final idCandidates = [
             decoded['id'],
             decoded['image_id'],
             decoded['imageId'],
           ];
-
-          for (final candidate in candidates) {
+          for (final candidate in idCandidates) {
             if (candidate != null && candidate.toString().isNotEmpty) {
               imageId = candidate.toString();
               break;
             }
           }
 
+          inlineUrl = _findStringRecursively(
+            decoded,
+            const ['url', 'inline_url', 'inlineUrl'],
+          );
+
           if (imageId == null && decoded['image'] is Map) {
-            final imageObject = decoded['image'] as Map;
-
-            final candidates = [
-              imageObject['id'],
-              imageObject['image_id'],
-              imageObject['imageId'],
-            ];
-
-            for (final candidate in candidates) {
-              if (candidate != null &&
-                  candidate.toString().isNotEmpty) {
+            final image = decoded['image'] as Map;
+            for (final candidate in [
+              image['id'],
+              image['image_id'],
+              image['imageId'],
+            ]) {
+              if (candidate != null && candidate.toString().isNotEmpty) {
                 imageId = candidate.toString();
                 break;
               }
             }
+            inlineUrl ??= _findStringRecursively(
+              image,
+              const ['url', 'inline_url', 'inlineUrl'],
+            );
           }
         }
-      } catch (_) {
-        // إذا لم تكن الاستجابة JSON، نحاول regex أدناه.
-      }
+      } catch (_) {}
 
       imageId ??= RegExp(
         r'''"(?:id|image_id|imageId)"\s*:\s*"([^"]+)"''',
         caseSensitive: false,
       ).firstMatch(uploadBody)?.group(1);
 
-      imageId ??= RegExp(
-        r'''(?:image_id|imageId|image)["']?\s*[:=]\s*["']([^"']+)["']''',
+      inlineUrl ??= RegExp(
+        r'''"(?:url|inline_url|inlineUrl)"\s*:\s*"([^"]+)"''',
         caseSensitive: false,
       ).firstMatch(uploadBody)?.group(1);
+
+      if ((imageId == null || imageId.isEmpty) &&
+          inlineUrl != null &&
+          inlineUrl!.isNotEmpty) {
+        final match = RegExp(
+          r'''/images/inline/([^/?#]+)''',
+          caseSensitive: false,
+        ).firstMatch(inlineUrl!);
+        imageId = match?.group(1);
+      }
 
       if (imageId == null || imageId.isEmpty) {
         throw Exception(
@@ -388,29 +420,30 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
       debugPrint('remove.bg image ID: $imageId');
 
-      // ----------------------------------------------------------
-      // 4. Polling على /images/inline/{image_id}
-      // ----------------------------------------------------------
-
+      // 5) Poll /images/inline/{id} until preview_result is finished.
       Uri? downloadUri;
 
       for (int attempt = 0; attempt < 30; attempt++) {
-        await Future.delayed(
-          Duration(seconds: attempt == 0 ? 1 : 2),
-        );
+        await Future.delayed(Duration(seconds: attempt == 0 ? 1 : 2));
 
         final inlineUri = Uri.parse(
           'https://www.remove.bg/images/inline/$imageId',
         );
 
+        final inlineHeaders = <String, String>{
+          ...browserHeaders,
+          'Accept': 'application/json, text/plain, */*',
+          'Referer': uploadPageUrl,
+          'Origin': 'https://www.remove.bg',
+          'X-CSRF-Token': csrfToken,
+        };
+        if (cookieHeader.isNotEmpty) {
+          inlineHeaders['Cookie'] = cookieHeader;
+        }
+
         final inlineResponse = await client.get(
           inlineUri,
-          headers: {
-            ...baseHeaders,
-            'Accept': 'application/json, text/plain, */*',
-            'Referer': uploadPageUrl,
-            'Origin': 'https://www.remove.bg',
-          },
+          headers: inlineHeaders,
         );
 
         final inlineBody = utf8.decode(
@@ -433,10 +466,8 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
         try {
           final decoded = jsonDecode(inlineBody);
-
           if (decoded is Map) {
             state = decoded['state']?.toString();
-
             resultUrl = _findStringRecursively(
               decoded,
               const [
@@ -448,10 +479,9 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
               ],
             );
 
-            if (state == null && decoded['preview_result'] is Map) {
-              final preview = decoded['preview_result'] as Map;
-              state = preview['state']?.toString();
-
+            final preview = decoded['preview_result'];
+            if (preview is Map) {
+              state ??= preview['state']?.toString();
               resultUrl ??= _findStringRecursively(
                 preview,
                 const [
@@ -464,9 +494,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
               );
             }
           }
-        } catch (_) {
-          // نحاول regex في حالة الرد ليس JSON.
-        }
+        } catch (_) {}
 
         state ??= RegExp(
           r'''"state"\s*:\s*"([^"]+)"''',
@@ -484,27 +512,25 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
         if (resultUrl != null && resultUrl.isNotEmpty) {
           resultUrl = _decodeJsonUrl(resultUrl);
-
           if (resultUrl.startsWith('http://') ||
               resultUrl.startsWith('https://')) {
             downloadUri = Uri.tryParse(resultUrl);
+          } else if (resultUrl.startsWith('/')) {
+            downloadUri = Uri.parse(
+              'https://www.remove.bg$resultUrl',
+            );
           }
         }
 
-        if (state?.toLowerCase() == 'finished' &&
-            downloadUri != null) {
+        if (state?.toLowerCase() == 'finished' && downloadUri != null) {
           break;
         }
 
-        if (downloadUri != null) {
-          break;
-        }
+        if (downloadUri != null) break;
 
         if (state?.toLowerCase() == 'failed' ||
             state?.toLowerCase() == 'error') {
-          throw Exception(
-            'remove.bg فشل في معالجة الصورة',
-          );
+          throw Exception('remove.bg فشل في معالجة الصورة');
         }
       }
 
@@ -514,18 +540,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         );
       }
 
-      debugPrint(
-        'remove.bg download URL: $downloadUri',
-      );
+      debugPrint('remove.bg download URL: $downloadUri');
 
-      // ----------------------------------------------------------
-      // 5. تنزيل نتيجة Free
-      // ----------------------------------------------------------
-
+      // 6) Download the Free result.
       final resultResponse = await client.get(
         downloadUri,
         headers: {
-          ...baseHeaders,
+          ...browserHeaders,
           'Accept': '*/*',
           'Referer': uploadPageUrl,
         },
@@ -534,19 +555,14 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       if (resultResponse.statusCode < 200 ||
           resultResponse.statusCode >= 300) {
         throw Exception(
-          'فشل تنزيل نتيجة remove.bg: '
-          '${resultResponse.statusCode}',
+          'فشل تنزيل نتيجة remove.bg: ${resultResponse.statusCode}',
         );
       }
 
       final resultBytes = resultResponse.bodyBytes;
 
-      // ----------------------------------------------------------
-      // 6. إذا كانت النتيجة ZIP نستخرج color.jpg
-      // ----------------------------------------------------------
-
-      List<int>? finalImageBytes;
-
+      // 7) The captured Free website flow returns a ZIP. Extract color.jpg.
+      List<int> finalImageBytes;
       final isZip = resultBytes.length >= 4 &&
           resultBytes[0] == 0x50 &&
           resultBytes[1] == 0x4B &&
@@ -559,13 +575,9 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           verify: false,
         );
 
-        // الأفضلية لـ color.jpg لأنها نتيجة Free الظاهرة في
-        // سير عمل موقع remove.bg.
         ArchiveFile? colorFile;
-
         for (final file in archive) {
           final name = file.name.toLowerCase();
-
           if (name == 'color.jpg' ||
               name.endsWith('/color.jpg') ||
               name == 'color.jpeg' ||
@@ -575,11 +587,9 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           }
         }
 
-        // احتياط إذا تغير اسم الملف.
         colorFile ??= archive.firstWhere(
           (file) {
             final name = file.name.toLowerCase();
-
             return file.isFile &&
                 (name.endsWith('.jpg') ||
                     name.endsWith('.jpeg') ||
@@ -592,25 +602,17 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
         finalImageBytes = colorFile.readBytes();
       } else {
-        // أحياناً قد يرجع الموقع الصورة مباشرة.
         finalImageBytes = resultBytes;
       }
 
-      if (finalImageBytes == null || finalImageBytes.isEmpty) {
-        throw Exception(
-          'ملف الصورة الناتج من remove.bg فارغ',
-        );
+      if (finalImageBytes.isEmpty) {
+        throw Exception('ملف الصورة الناتج من remove.bg فارغ');
       }
 
       final outputPath =
           '${imageFile.path}_removebg_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
       final outputFile = File(outputPath);
-
-      await outputFile.writeAsBytes(
-        finalImageBytes,
-        flush: true,
-      );
+      await outputFile.writeAsBytes(finalImageBytes, flush: true);
 
       return outputFile;
     } finally {
@@ -625,36 +627,20 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     if (object is Map) {
       for (final key in wantedKeys) {
         final value = object[key];
-
-        if (value != null &&
-            value is String &&
-            value.trim().isNotEmpty) {
+        if (value != null && value is String && value.trim().isNotEmpty) {
           return value;
         }
       }
-
       for (final value in object.values) {
-        final result = _findStringRecursively(
-          value,
-          wantedKeys,
-        );
-
-        if (result != null) {
-          return result;
-        }
+        final result = _findStringRecursively(value, wantedKeys);
+        if (result != null) return result;
       }
     }
 
     if (object is List) {
       for (final value in object) {
-        final result = _findStringRecursively(
-          value,
-          wantedKeys,
-        );
-
-        if (result != null) {
-          return result;
-        }
+        final result = _findStringRecursively(value, wantedKeys);
+        if (result != null) return result;
       }
     }
 
@@ -663,7 +649,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
   String _decodeJsonUrl(String value) {
     var result = value;
-
     try {
       result = jsonDecode('"$value"') as String;
     } catch (_) {
@@ -671,7 +656,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           .replaceAll(r'\/', '/')
           .replaceAll(r'\u0026', '&');
     }
-
     return result;
   }
 
@@ -696,9 +680,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
               title: const Text(
                 'معاينة الصورة الشخصية',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
               content: SingleChildScrollView(
                 child: Column(
@@ -709,27 +691,20 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                       width: double.infinity,
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        border: Border.all(
-                          color: Colors.grey.shade300,
-                        ),
+                        border: Border.all(color: Colors.grey.shade300),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: InteractiveViewer(
                           panEnabled: true,
-                          boundaryMargin:
-                              const EdgeInsets.all(20),
+                          boundaryMargin: const EdgeInsets.all(20),
                           minScale: 0.5,
                           maxScale: 4,
                           child: Image.file(
                             currentImage,
                             fit: BoxFit.contain,
-                            errorBuilder: (
-                              context,
-                              error,
-                              stackTrace,
-                            ) {
+                            errorBuilder: (context, error, stackTrace) {
                               return const Center(
                                 child: Icon(
                                   Icons.broken_image,
@@ -742,20 +717,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 10),
-
                     const Text(
                       'يمكنك تقريب الصورة لمراجعتها قبل اعتمادها',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
                     ),
-
                     const SizedBox(height: 15),
-
                     if (isProcessing)
                       const Column(
                         children: [
@@ -772,10 +740,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                           SizedBox(height: 5),
                           Text(
                             'يرجى الانتظار',
-                            style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: 12,
-                            ),
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
                           ),
                         ],
                       )
@@ -784,10 +749,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: () async {
-                            setDialogState(
-                              () => isProcessing = true,
-                            );
-
+                            setDialogState(() => isProcessing = true);
                             try {
                               final processed =
                                   await _removeBackgroundUsingWebsite(
@@ -807,32 +769,20 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                 isProcessing = false;
                               });
 
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(
+                              ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text(
-                                    'تمت إزالة الخلفية بنجاح',
-                                  ),
+                                  content: Text('تمت إزالة الخلفية بنجاح'),
                                   backgroundColor: Colors.green,
                                 ),
                               );
                             } catch (e) {
-                              debugPrint(
-                                'Remove.bg error: $e',
-                              );
-
+                              debugPrint('Remove.bg error: $e');
                               if (!mounted) return;
 
-                              setDialogState(
-                                () => isProcessing = false,
-                              );
-
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(
+                              setDialogState(() => isProcessing = false);
+                              ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(
-                                    'تعذر إزالة الخلفية: $e',
-                                  ),
+                                  content: Text('تعذر إزالة الخلفية: $e'),
                                   backgroundColor: Colors.red,
                                 ),
                               );
@@ -850,12 +800,8 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                Colors.amberAccent,
-                            padding:
-                                const EdgeInsets.symmetric(
-                              vertical: 13,
-                            ),
+                            backgroundColor: Colors.amberAccent,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
                           ),
                         ),
                       ),
@@ -866,19 +812,14 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                 TextButton(
                   onPressed: isProcessing
                       ? null
-                      : () {
-                          Navigator.pop(dialogContext);
-                        },
+                      : () => Navigator.pop(dialogContext),
                   child: const Text('إلغاء'),
                 ),
                 ElevatedButton(
                   onPressed: isProcessing
                       ? null
                       : () {
-                          setState(() {
-                            _pickedImage = currentImage;
-                          });
-
+                          setState(() => _pickedImage = currentImage);
                           Navigator.pop(dialogContext);
                         },
                   style: ElevatedButton.styleFrom(
@@ -886,9 +827,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                   ),
                   child: const Text(
                     'اعتماد',
-                    style: TextStyle(
-                      color: Colors.white,
-                    ),
+                    style: TextStyle(color: Colors.white),
                   ),
                 ),
               ],
@@ -906,7 +845,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
-
       final picked = await picker.pickImage(
         source: source,
         imageQuality: 90,
@@ -915,13 +853,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       );
 
       if (picked != null && mounted) {
-        await _showImagePreviewDialog(
-          File(picked.path),
-        );
+        await _showImagePreviewDialog(File(picked.path));
       }
     } catch (e) {
       debugPrint('خطأ في اختيار الصورة: $e');
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -936,16 +871,11 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   void _deleteCurrentPhoto() {
     setState(() {
       _pickedImage = null;
-
-      if (_studentData != null) {
-        _studentData!['imageUrl'] = null;
-      }
+      if (_studentData != null) _studentData!['imageUrl'] = null;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('تم حذف صورة الطالب'),
-      ),
+      const SnackBar(content: Text('تم حذف صورة الطالب')),
     );
   }
 
@@ -953,14 +883,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   // UPLOAD IMAGE TO EMIS
   // ============================================================
 
-  Future<String?> _uploadImageToEmisServer(
-    File imageFile,
-  ) async {
+  Future<String?> _uploadImageToEmisServer(File imageFile) async {
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse(
-        'https://emis.moedu.gov.iq/api/student/uploadimage',
-      ),
+      Uri.parse('https://emis.moedu.gov.iq/api/student/uploadimage'),
     );
 
     request.headers['Authorization'] = widget.token;
@@ -976,29 +902,21 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
     try {
       final streamedResponse = await request.send();
-
       final responseData =
           await streamedResponse.stream.bytesToString();
 
-      debugPrint(
-        'رفع صورة EMIS: ${streamedResponse.statusCode}',
-      );
+      debugPrint('رفع صورة EMIS: ${streamedResponse.statusCode}');
 
       if (streamedResponse.statusCode == 200) {
         final jsonResponse = jsonDecode(responseData);
-
         if (jsonResponse is Map) {
           return jsonResponse['imageUrl']?.toString();
         }
       }
 
-      debugPrint(
-        'استجابة رفع الصورة: $responseData',
-      );
+      debugPrint('استجابة رفع الصورة: $responseData');
     } catch (e) {
-      debugPrint(
-        'خطأ في رفع الصورة إلى EMIS: $e',
-      );
+      debugPrint('خطأ في رفع الصورة إلى EMIS: $e');
     }
 
     return null;
@@ -1016,35 +934,27 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     try {
       if (_pickedImage != null) {
         final newImageUrl =
-            await _uploadImageToEmisServer(
-          _pickedImage!,
-        );
+            await _uploadImageToEmisServer(_pickedImage!);
 
-        if (newImageUrl != null &&
-            newImageUrl.isNotEmpty) {
+        if (newImageUrl != null && newImageUrl.isNotEmpty) {
           _studentData!['imageUrl'] = newImageUrl;
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text(
-                  'تعذر رفع صورة الطالب',
-                ),
+                content: Text('تعذر رفع صورة الطالب'),
                 backgroundColor: Colors.red,
               ),
             );
           }
-
           return;
         }
       }
 
-      final url = Uri.parse(
-        'https://emis.moedu.gov.iq/api/student/updatestudent',
-      );
-
       final response = await http.post(
-        url,
+        Uri.parse(
+          'https://emis.moedu.gov.iq/api/student/updatestudent',
+        ),
         headers: {
           'Authorization': widget.token,
           'Content-Type': 'application/json',
@@ -1055,38 +965,26 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
       if (!mounted) return;
 
-      if (response.statusCode == 200 ||
-          response.statusCode == 204) {
+      if (response.statusCode == 200 || response.statusCode == 204) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('تم الحفظ بنجاح!'),
             backgroundColor: Colors.green,
           ),
         );
-
         Navigator.pop(context);
       } else {
-        debugPrint(
-          'Update student status: ${response.statusCode}',
-        );
-        debugPrint(
-          'Update student response: ${response.body}',
-        );
-
+        debugPrint('Update student status: ${response.statusCode}');
+        debugPrint('Update student response: ${response.body}');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'فشل الحفظ! تأكد من المدخلات',
-            ),
+            content: Text('فشل الحفظ! تأكد من المدخلات'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } catch (e) {
-      debugPrint(
-        'خطأ في حفظ بيانات الطالب: $e',
-      );
-
+      debugPrint('خطأ في حفظ بيانات الطالب: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1096,9 +994,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -1122,19 +1018,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         return;
       }
 
-      final arabicLabel =
-          _officialArabicNames[key] ?? key;
+      final arabicLabel = _officialArabicNames[key] ?? key;
 
       if (value is Map<String, dynamic>) {
         widgets.add(
           Card(
-            color: isDark
-                ? const Color(0xFF1E1E1E)
-                : Colors.white,
-            margin: const EdgeInsets.only(
-              bottom: 15,
-              top: 10,
-            ),
+            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            margin: const EdgeInsets.only(bottom: 15, top: 10),
             elevation: 1,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -1142,8 +1032,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
             child: Padding(
               padding: const EdgeInsets.all(15),
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     arabicLabel,
@@ -1154,18 +1043,14 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     ),
                   ),
                   const SizedBox(height: 15),
-                  ..._buildDynamicFields(
-                    value,
-                    isDark,
-                    textColor,
-                  ),
+                  ..._buildDynamicFields(value, isDark, textColor),
                 ],
               ),
             ),
           ),
         );
       } else if (value is List) {
-        // القوائم المعقدة لا تعرض كحقول نصية.
+        // Complex lists are intentionally not rendered as text fields.
       } else {
         widgets.add(
           PlainTextField(
@@ -1173,9 +1058,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
             initialValue: value,
             isDark: isDark,
             textColor: textColor,
-            onChanged: (v) {
-              dataMap[key] = v;
-            },
+            onChanged: (v) => dataMap[key] = v,
           ),
         );
       }
@@ -1192,32 +1075,17 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppCore.themeNotifier,
-      builder: (
-        context,
-        currentMode,
-        child,
-      ) {
-        final isDark =
-            currentMode == ThemeMode.dark;
+      builder: (context, currentMode, child) {
+        final isDark = currentMode == ThemeMode.dark;
+        final bgColor =
+            isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA);
+        final cardColor =
+            isDark ? const Color(0xFF1E1E1E) : Colors.white;
+        final textColor = isDark ? Colors.white : Colors.black87;
 
-        final bgColor = isDark
-            ? const Color(0xFF121212)
-            : const Color(0xFFF5F7FA);
-
-        final cardColor = isDark
-            ? const Color(0xFF1E1E1E)
-            : Colors.white;
-
-        final textColor =
-            isDark ? Colors.white : Colors.black87;
-
-        String imgUrl =
-            _studentData?['imageUrl']?.toString() ?? '';
-
-        if (imgUrl.isNotEmpty &&
-            !imgUrl.startsWith('http')) {
-          imgUrl =
-              'https://emis.moedu.gov.iq$imgUrl';
+        String imgUrl = _studentData?['imageUrl']?.toString() ?? '';
+        if (imgUrl.isNotEmpty && !imgUrl.startsWith('http')) {
+          imgUrl = 'https://emis.moedu.gov.iq$imgUrl';
         }
 
         return Scaffold(
@@ -1231,8 +1099,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
               ),
             ),
             flexibleSpace: Container(
-              decoration:
-                  const BoxDecoration(
+              decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
                     Color(0xFF1A237E),
@@ -1241,27 +1108,17 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                 ),
               ),
             ),
-            iconTheme:
-                const IconThemeData(
-              color: Colors.white,
-            ),
+            iconTheme: const IconThemeData(color: Colors.white),
           ),
           body: _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(),
-                )
+              ? const Center(child: CircularProgressIndicator())
               : _studentData == null
-                  ? const Center(
-                      child: Text(
-                        'فشل جلب البيانات',
-                      ),
-                    )
+                  ? const Center(child: Text('فشل جلب البيانات'))
                   : Column(
                       children: [
                         Expanded(
                           child: ListView(
-                            padding:
-                                const EdgeInsets.all(15),
+                            padding: const EdgeInsets.all(15),
                             children: [
                               Center(
                                 child: Stack(
@@ -1269,115 +1126,79 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                     Container(
                                       width: 140,
                                       height: 140,
-                                      decoration:
-                                          BoxDecoration(
+                                      decoration: BoxDecoration(
                                         color: Colors.white,
-                                        shape:
-                                            BoxShape.circle,
-                                        border:
-                                            Border.all(
-                                          color: Colors
-                                              .blueAccent,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.blueAccent,
                                           width: 3,
                                         ),
                                       ),
                                       child: ClipOval(
-                                        child:
-                                            _pickedImage !=
-                                                    null
-                                                ? Image.file(
-                                                    _pickedImage!,
-                                                    fit: BoxFit
-                                                        .cover,
-                                                  )
-                                                : imgUrl
-                                                        .isNotEmpty
-                                                    ? Image
-                                                        .network(
-                                                        imgUrl,
-                                                        headers: {
-                                                          'Authorization':
-                                                              widget.token,
-                                                        },
-                                                        fit: BoxFit
-                                                            .cover,
-                                                        errorBuilder:
-                                                            (
-                                                          context,
-                                                          error,
-                                                          stackTrace,
-                                                        ) {
-                                                          return Icon(
-                                                            Icons
-                                                                .person,
-                                                            size:
-                                                                80,
-                                                            color: Colors
-                                                                .grey[400],
-                                                          );
-                                                        },
-                                                      )
-                                                    : Icon(
-                                                        Icons
-                                                            .person,
+                                        child: _pickedImage != null
+                                            ? Image.file(
+                                                _pickedImage!,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : imgUrl.isNotEmpty
+                                                ? Image.network(
+                                                    imgUrl,
+                                                    headers: {
+                                                      'Authorization':
+                                                          widget.token,
+                                                    },
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return Icon(
+                                                        Icons.person,
                                                         size: 80,
-                                                        color: Colors
-                                                            .grey[400],
-                                                      ),
+                                                        color: Colors.grey[400],
+                                                      );
+                                                    },
+                                                  )
+                                                : Icon(
+                                                    Icons.person,
+                                                    size: 80,
+                                                    color: Colors.grey[400],
+                                                  ),
                                       ),
                                     ),
-
-                                    // الكاميرا
                                     Positioned(
                                       bottom: 0,
                                       right: 0,
-                                      child:
-                                          CircleAvatar(
-                                        backgroundColor:
-                                            Colors.blue,
+                                      child: CircleAvatar(
+                                        backgroundColor: Colors.blue,
                                         radius: 20,
-                                        child:
-                                            IconButton(
-                                          icon:
-                                              const Icon(
-                                            Icons
-                                                .camera_alt,
-                                            color: Colors
-                                                .white,
+                                        child: IconButton(
+                                          icon: const Icon(
+                                            Icons.camera_alt,
+                                            color: Colors.white,
                                             size: 18,
                                           ),
-                                          onPressed: () =>
-                                              _pickImage(
-                                            ImageSource
-                                                .camera,
+                                          onPressed: () => _pickImage(
+                                            ImageSource.camera,
                                           ),
                                         ),
                                       ),
                                     ),
-
-                                    // المعرض
                                     Positioned(
                                       bottom: 0,
                                       left: 0,
-                                      child:
-                                          CircleAvatar(
-                                        backgroundColor:
-                                            Colors.green,
+                                      child: CircleAvatar(
+                                        backgroundColor: Colors.green,
                                         radius: 20,
-                                        child:
-                                            IconButton(
-                                          icon:
-                                              const Icon(
-                                            Icons
-                                                .photo_library,
-                                            color: Colors
-                                                .white,
+                                        child: IconButton(
+                                          icon: const Icon(
+                                            Icons.photo_library,
+                                            color: Colors.white,
                                             size: 18,
                                           ),
-                                          onPressed: () =>
-                                              _pickImage(
-                                            ImageSource
-                                                .gallery,
+                                          onPressed: () => _pickImage(
+                                            ImageSource.gallery,
                                           ),
                                         ),
                                       ),
@@ -1385,36 +1206,24 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                   ],
                                 ),
                               ),
-
-                              const SizedBox(
-                                height: 10,
-                              ),
-
+                              const SizedBox(height: 10),
                               Center(
-                                child:
-                                    TextButton.icon(
-                                  onPressed:
-                                      _deleteCurrentPhoto,
+                                child: TextButton.icon(
+                                  onPressed: _deleteCurrentPhoto,
                                   icon: const Icon(
-                                    Icons
-                                        .delete_forever,
+                                    Icons.delete_forever,
                                     color: Colors.red,
                                   ),
                                   label: const Text(
                                     'حذف الصورة الحالية',
                                     style: TextStyle(
                                       color: Colors.red,
-                                      fontWeight:
-                                          FontWeight.bold,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                 ),
                               ),
-
-                              const SizedBox(
-                                height: 15,
-                              ),
-
+                              const SizedBox(height: 15),
                               ..._buildDynamicFields(
                                 _studentData!,
                                 isDark,
@@ -1423,28 +1232,19 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                             ],
                           ),
                         ),
-
                         Container(
-                          padding:
-                              const EdgeInsets.all(15),
+                          padding: const EdgeInsets.all(15),
                           color: cardColor,
                           child: SizedBox(
                             width: double.infinity,
                             height: 55,
                             child: ElevatedButton(
-                              onPressed: _isSaving
-                                  ? null
-                                  : _saveStudentData,
-                              style:
-                                  ElevatedButton.styleFrom(
-                                backgroundColor:
-                                    Colors.green[700],
-                                shape:
-                                    RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(
-                                    12,
-                                  ),
+                              onPressed:
+                                  _isSaving ? null : _saveStudentData,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green[700],
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                               child: _isSaving
@@ -1456,8 +1256,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                       style: TextStyle(
                                         fontSize: 18,
                                         color: Colors.white,
-                                        fontWeight:
-                                            FontWeight.bold,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                             ),
@@ -1493,18 +1292,15 @@ class PlainTextField extends StatefulWidget {
   });
 
   @override
-  State<PlainTextField> createState() =>
-      _PlainTextFieldState();
+  State<PlainTextField> createState() => _PlainTextFieldState();
 }
 
-class _PlainTextFieldState
-    extends State<PlainTextField> {
+class _PlainTextFieldState extends State<PlainTextField> {
   late final TextEditingController _controller;
 
   @override
   void initState() {
     super.initState();
-
     _controller = TextEditingController(
       text: widget.initialValue?.toString() ?? '',
     );
@@ -1519,8 +1315,7 @@ class _PlainTextFieldState
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding:
-          const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.only(bottom: 15),
       child: TextFormField(
         controller: _controller,
         onChanged: widget.onChanged,
@@ -1530,18 +1325,12 @@ class _PlainTextFieldState
         ),
         decoration: InputDecoration(
           labelText: widget.label,
-          labelStyle:
-              const TextStyle(color: Colors.grey),
+          labelStyle: const TextStyle(color: Colors.grey),
           filled: true,
-          fillColor: widget.isDark
-              ? Colors.black12
-              : Colors.grey[50],
+          fillColor: widget.isDark ? Colors.black12 : Colors.grey[50],
           border: OutlineInputBorder(
-            borderRadius:
-                BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: Colors.grey.shade300,
-            ),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
           ),
         ),
       ),
