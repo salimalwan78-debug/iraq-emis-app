@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'loading_data_screen.dart'; // أو intro_screen.dart حسب نقطة البداية لديك
+import 'intro_screen.dart'; // استدعاء شاشة الفيديو الافتتاحية
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,10 +30,11 @@ class MyApp extends StatelessWidget {
       ],
       locale: const Locale('ar', 'IQ'),
       theme: ThemeData(
-        fontFamily: 'Tajawal',
+        fontFamily: 'Tajawal', 
         primarySwatch: Colors.blue,
       ),
-      home: const Scaffold(body: Center(child: Text('بوابة الدخول'))), // استبدلها بشاشة البداية لديك
+      // الخطأ كان هنا: تم تصحيحه ليوجه التطبيق إلى شاشة البداية الفعلية
+      home: const IntroScreen(),
     );
   }
 }
