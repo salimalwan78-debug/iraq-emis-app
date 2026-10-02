@@ -23,6 +23,37 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
+  // قاموس تعريب الحقول البرمجية لتظهر باللغة العربية الرسمية لنظام EMIS
+  final Map<String, String> _arabicFieldNames = {
+    'name': 'الاسم الأول',
+    'fatherName': 'اسم الأب',
+    'grandFatherName': 'اسم الجد',
+    'surName': 'اللقب',
+    'motherName': 'اسم الأم الثلاثي',
+    'mothersFatherName': 'اسم أب الأم',
+    'mothersGrandFatherName': 'اسم جد الأم',
+    'birthDate': 'تاريخ الميلاد',
+    'nationality': 'الجنسية',
+    'religion': 'الديانة',
+    'bloodGroup': 'فصيلة الدم',
+    'censusNumber': 'رقم التعداد العام',
+    'town': 'المحافظة',
+    'closestLocation': 'أقرب نقطة دالة',
+    'street': 'المنطقة / الشارع',
+    'homePhoneNumber': 'رقم الهاتف',
+    'idNumber': 'رقم الهوية',
+    'recordNumber': 'رقم السجل',
+    'pageNumber': 'رقم الصحيفة',
+    'issuer': 'جهة الإصدار',
+  };
+
+  // تعريب خيارات القوائم المنسدلة للقيم العددية
+  final Map<String, Map<String, String>> _dropdownOptions = {
+    'religion': {'الإسلام': 'الإسلام', 'المسيحية': 'المسيحية', 'الصابئة': 'الصابئة المندائية', 'أخرى': 'أخرى'},
+    'bloodGroup': {'O+': 'O+', 'O-': 'O-', 'A+': 'A+', 'A-': 'A-', 'B+': 'B+', 'B-': 'B-', 'AB+': 'AB+', 'AB-': 'AB-'},
+    'idType': {'12': 'البطاقة الوطنية الموحدة', '13': 'هوية الأحوال المدنية', '14': 'شهادة الجنسية', '15': 'شهادة ولادة'}
+  };
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +77,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
+  // معاينة الصورة وإزالة الخلفية ديناميكياً
   Future<void> _showImagePreviewDialog(File imageFile) async {
     File currentImage = imageFile;
     bool isProcessing = false;
@@ -58,12 +90,12 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: const Text('معاينة الصورة', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+              title: const Text('معاينة الصورة وتعديلها', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    height: 250, width: double.infinity,
+                    height: 220, width: double.infinity,
                     decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.grey.shade300)),
                     child: InteractiveViewer(
                       panEnabled: true, boundaryMargin: const EdgeInsets.all(20), minScale: 0.5, maxScale: 4,
@@ -71,10 +103,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const Text('يمكنك تقريب الصورة وتدويرها بأصابعك', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const Text('يمكنك تقريب الصورة أو تحريكها لضبطها', style: TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 15),
                   isProcessing 
-                    ? const Padding(padding: EdgeInsets.all(8.0), child: Text('جاري معالجة الصورة...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))
+                    ? const Padding(padding: EdgeInsets.all(8.0), child: Text('جاري معالجة الصورة وإزالة الخلفية...', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)))
                     : ElevatedButton.icon(
                         onPressed: () async {
                           setDialogState(() => isProcessing = true);
@@ -94,20 +126,20 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                           setDialogState(() => isProcessing = false);
                         },
                         icon: const Icon(Icons.auto_fix_high),
-                        label: const Text('حذف الخلفية'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                        label: const Text('إزالة الخلفية (تلقائي)'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
                       )
                 ],
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('إعادة التقاط')),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
                 ElevatedButton(
                   onPressed: isProcessing ? null : () {
                     setState(() { _pickedImage = currentImage; });
                     Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  child: const Text('اعتماد الصورة', style: TextStyle(color: Colors.white)),
+                  child: const Text('اعتماد', style: TextStyle(color: Colors.white)),
                 )
               ],
             );
@@ -123,6 +155,17 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     if (picked != null) {
       _showImagePreviewDialog(File(picked.path));
     }
+  }
+
+  // حذف الصورة الحالية للطالب
+  void _deleteCurrentPhoto() {
+    setState(() {
+      _pickedImage = null;
+      if (_studentData != null) {
+        _studentData!['imageUrl'] = null;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حذف صورة الطالب')));
   }
 
   Future<String?> _uploadImageToEmisServer(File imageFile) async {
@@ -174,10 +217,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
+  // بناء الحقول ديناميكياً مع التعريب التام للأسماء
   List<Widget> _buildDynamicFields(Map<String, dynamic> dataMap, bool isDark, Color textColor) {
     List<Widget> widgets = [];
     dataMap.forEach((key, value) {
       if (key == 'imageUrl' || key == 'id' || key == 'createdAt' || key == 'updatedAt' || key == 'schoolId') return;
+
+      String fieldTitle = _arabicFieldNames[key] ?? key;
 
       if (value is Map<String, dynamic>) {
         widgets.add(
@@ -190,7 +236,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(key.toUpperCase(), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
+                  Text(fieldTitle, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
                   const SizedBox(height: 15),
                   ..._buildDynamicFields(value, isDark, textColor),
                 ],
@@ -201,13 +247,44 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       } else if (value is List) {
         // تجاهل القوائم المعقدة
       } else {
-        widgets.add(SpeechTextField(
-          label: key,
-          initialValue: value,
-          isDark: isDark,
-          textColor: textColor,
-          onChanged: (v) => dataMap[key] = v,
-        ));
+        // إذا كان الحقل يمتلك خيارات معرّفة (مثل idType أو religion)
+        if (_dropdownOptions.containsKey(key)) {
+          Map<String, String> options = _dropdownOptions[key]!;
+          String currentValue = value?.toString() ?? options.keys.first;
+          if (!options.containsKey(currentValue)) currentValue = options.keys.first;
+
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 15),
+              child: DropdownButtonFormField<String>(
+                value: currentValue,
+                dropdownColor: isDark ? Colors.grey[900] : Colors.white,
+                style: TextStyle(color: textColor, fontSize: 16),
+                decoration: InputDecoration(
+                  labelText: fieldTitle,
+                  labelStyle: const TextStyle(color: Colors.grey),
+                  filled: true,
+                  fillColor: isDark ? Colors.black12 : Colors.grey[50],
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300))
+                ),
+                items: options.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+                onChanged: (v) {
+                  setState(() {
+                    dataMap[key] = (key == 'idType') ? int.tryParse(v!) : v;
+                  });
+                },
+              ),
+            ),
+          );
+        } else {
+          widgets.add(SpeechTextField(
+            label: fieldTitle,
+            initialValue: value,
+            isDark: isDark,
+            textColor: textColor,
+            onChanged: (v) => dataMap[key] = v,
+          ));
+        }
       }
     });
     return widgets;
@@ -223,7 +300,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         Color cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
         Color textColor = isDark ? Colors.white : Colors.black87;
 
-        String imgUrl = _studentData!['imageUrl'] ?? '';
+        String imgUrl = _studentData?['imageUrl'] ?? '';
         if (imgUrl.isNotEmpty && !imgUrl.startsWith('http')) imgUrl = 'https://emis.moedu.gov.iq$imgUrl';
 
         return Scaffold(
@@ -243,6 +320,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                       child: ListView(
                         padding: const EdgeInsets.all(15),
                         children: [
+                          // قسم الصورة وزر الحذف الجديد
                           Center(
                             child: Stack(
                               children: [
@@ -257,12 +335,21 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                             : Icon(Icons.person, size: 80, color: Colors.grey[400])),
                                   ),
                                 ),
-                                Positioned(bottom: 0, right: 0, child: CircleAvatar(backgroundColor: Colors.blue, radius: 22, child: IconButton(icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20), onPressed: () => _pickImage(ImageSource.camera)))),
-                                Positioned(bottom: 0, left: 0, child: CircleAvatar(backgroundColor: Colors.green, radius: 22, child: IconButton(icon: const Icon(Icons.photo_library, color: Colors.white, size: 20), onPressed: () => _pickImage(ImageSource.gallery)))),
+                                Positioned(bottom: 0, right: 0, child: CircleAvatar(backgroundColor: Colors.blue, radius: 20, child: IconButton(icon: const Icon(Icons.camera_alt, color: Colors.white, size: 18), onPressed: () => _pickImage(ImageSource.camera)))),
+                                Positioned(bottom: 0, left: 0, child: CircleAvatar(backgroundColor: Colors.green, radius: 20, child: IconButton(icon: const Icon(Icons.photo_library, color: Colors.white, size: 18), onPressed: () => _pickImage(ImageSource.gallery)))),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 25),
+                          const SizedBox(height: 10),
+                          // زر حذف الصورة الحالية
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: _deleteCurrentPhoto,
+                              icon: const Icon(Icons.delete_forever, color: Colors.red),
+                              label: const Text('حذف الصورة الحالية', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                          const SizedBox(height: 15),
                           ..._buildDynamicFields(_studentData!, isDark, textColor),
                         ],
                       ),
@@ -286,6 +373,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 }
 
+// أداة ذكية: المايكروفون الفعال (عربي حصرياً)
 class SpeechTextField extends StatefulWidget {
   final String label;
   final dynamic initialValue;
@@ -355,11 +443,10 @@ class _SpeechTextFieldState extends State<SpeechTextField> {
           suffixIcon: IconButton(
             icon: Icon(_isListening ? Icons.mic : Icons.mic_none, color: _isListening ? Colors.red : Colors.indigo, size: 28),
             onPressed: _listen,
-            tooltip: 'انقر للتحدث بالعربية',
+            tooltip: 'تحدث بالعربية',
           ),
         ),
       ),
     );
   }
 }
-
