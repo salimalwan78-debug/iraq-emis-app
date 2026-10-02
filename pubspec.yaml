@@ -20,11 +20,14 @@ dependencies:
   webview_flutter: ^4.4.2
   audioplayers: ^5.2.1
   video_player: ^2.8.2
-  
-  # مكتبات الكاميرا والصوت والتخزين المحلي
+
+  # الكاميرا واختيار الصور
   image_picker: ^1.0.7
-  speech_to_text: ^6.5.1
-  permission_handler: ^11.3.0
+
+  # فك ملف ZIP الناتج من مسار Free في remove.bg
+  archive: ^4.0.7
+
+  # التخزين المحلي
   shared_preferences: ^2.2.2
 
 dev_dependencies:
@@ -34,6 +37,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
   assets:
     - assets/avatar.png
     - assets/relax.mp3
