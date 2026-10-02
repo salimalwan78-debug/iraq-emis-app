@@ -600,7 +600,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           ),
         );
 
-        finalImageBytes = colorFile.readBytes();
+        finalImageBytes = colorFile.readBytes() ?? <int>[];
       } else {
         finalImageBytes = resultBytes;
       }
