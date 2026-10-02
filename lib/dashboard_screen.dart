@@ -44,13 +44,14 @@ class DashboardScreen extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    // إزالة صورة التلميذ واستبدالها بأيقونة مستخدم احترافية
                     Container(
-                      width: 90, height: 90,
+                      width: 70, height: 70,
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3),
-                        // تم تصحيح المسار هنا ليتطابق مع assets/avatar.jpg
-                        image: const DecorationImage(image: AssetImage('assets/avatar.jpg'), fit: BoxFit.cover),
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2),
                       ),
+                      child: const Icon(Icons.person, color: Colors.white, size: 40),
                     ),
                     const SizedBox(width: 15),
                     Expanded(
