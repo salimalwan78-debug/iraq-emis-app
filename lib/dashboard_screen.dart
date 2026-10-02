@@ -48,7 +48,8 @@ class DashboardScreen extends StatelessWidget {
                       width: 90, height: 90,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3),
-                        image: const DecorationImage(image: AssetImage('assets/images/avatar.jpg'), fit: BoxFit.cover),
+                        // تم تصحيح المسار هنا ليتطابق مع assets/avatar.jpg
+                        image: const DecorationImage(image: AssetImage('assets/avatar.jpg'), fit: BoxFit.cover),
                       ),
                     ),
                     const SizedBox(width: 15),
