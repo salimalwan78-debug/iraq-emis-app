@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dashboard_screen.dart';
+import 'app_core.dart';
 
 class LoadingDataScreen extends StatefulWidget {
   final String token;
@@ -20,47 +21,56 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
   @override
   void initState() {
     super.initState();
+    AppCore.playRelaxMusic(); // تشغيل الصوت الهادئ
     _startFetchingData();
   }
 
-  Future<void> _startFetchingData() async {
-    String authHeader = widget.token.toLowerCase().startsWith('bearer ') ? widget.token : 'Bearer ${widget.token}';
-    final headers = {'Authorization': authHeader, 'Accept': 'application/json, text/plain, */*'};
-
+  // خوارزمية ذكية لاستخراج الاسم الحقيقي بدلاً من ali05.diw
+  String _extractRealNameFromToken() {
     try {
-      // 1. استخراج معرف الدخول من التوكن (مثل ali05.diw)
-      String loginId = "مستخدم النظام";
-      String jwt = authHeader.substring(7).trim();
+      String jwt = widget.token.toLowerCase().startsWith('bearer ') ? widget.token.substring(7).trim() : widget.token;
       final parts = jwt.split('.');
       if (parts.length == 3) {
         String payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
         Map<String, dynamic> data = jsonDecode(payload);
-        loginId = data['unique_name'] ?? data['name'] ?? loginId;
+        
+        String bestName = "مستخدم النظام";
+        int maxLength = 0;
+        final arabicRegex = RegExp(r'[\u0600-\u06FF]');
+        
+        // البحث عن أطول نص يحتوي على حروف عربية في التوكن (وهو دائماً الاسم الحقيقي)
+        data.forEach((key, value) {
+          if (value is String && arabicRegex.hasMatch(value) && value.length > maxLength) {
+            maxLength = value.length;
+            bestName = value;
+          }
+        });
+        return bestName;
       }
+    } catch (e) {
+      debugPrint("Token Decode Error: $e");
+    }
+    return "مستخدم النظام";
+  }
 
-      // 2. جلب بيانات المدرسة
+  Future<void> _startFetchingData() async {
+    String authHeader = widget.token.toLowerCase().startsWith('bearer ') ? widget.token : 'Bearer ${widget.token}';
+    final headers = {'Authorization': authHeader, 'Accept': 'application/json'};
+
+    try {
+      String realUserName = _extractRealNameFromToken();
+
       setState(() { _statusText = "جاري جلب بيانات المدرسة..."; _progressValue = 0.3; });
       final schoolRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/school/getschoolinformation/${widget.schoolId}'), headers: headers);
       final schoolData = schoolRes.statusCode == 200 ? jsonDecode(utf8.decode(schoolRes.bodyBytes)) : {};
 
-      // 3. جلب سجلات الطلاب
       setState(() { _statusText = "جاري تحميل سجلات الطلاب وتوزيعاتهم..."; _progressValue = 0.6; });
       final studentsRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/student/getstudents?page=1&rowsPerPage=3000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}'), headers: headers);
       final studentsData = studentsRes.statusCode == 200 ? jsonDecode(utf8.decode(studentsRes.bodyBytes))['data'] ?? [] : [];
 
-      // 4. جلب الكادر التعليمي واستخراج الاسم الحقيقي
-      setState(() { _statusText = "جاري معالجة بيانات الحساب..."; _progressValue = 0.8; });
+      setState(() { _statusText = "جاري تحميل بيانات الكادر التعليمي..."; _progressValue = 0.9; });
       final teachersRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/employee/getemployeesbyentities?page=1&rowsPerPage=1000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}&isTeacher=true'), headers: headers);
       final teachersData = teachersRes.statusCode == 200 ? jsonDecode(utf8.decode(teachersRes.bodyBytes))['data'] ?? [] : [];
-
-      // البحث عن الاسم العربي الحقيقي بمطابقة معرف الدخول مع بيانات المعلمين
-      String realUserName = loginId;
-      for (var teacher in teachersData) {
-        if (teacher['createdByUser'] == loginId || teacher['updatedByUser'] == loginId) {
-          realUserName = teacher['employeeFullName'] ?? realUserName;
-          break;
-        }
-      }
 
       setState(() { _statusText = "اكتمل التحميل بنجاح!"; _progressValue = 1.0; });
       await Future.delayed(const Duration(milliseconds: 500));
@@ -70,12 +80,8 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
           context,
           MaterialPageRoute(
             builder: (context) => DashboardScreen(
-              token: authHeader,
-              schoolId: widget.schoolId,
-              schoolName: schoolData['schoolName'] ?? 'مدرسة غير معروفة',
-              userName: realUserName,
-              allStudents: studentsData,
-              allTeachers: teachersData,
+              token: authHeader, schoolId: widget.schoolId, schoolName: schoolData['schoolName'] ?? 'مدرسة',
+              userName: realUserName, allStudents: studentsData, allTeachers: teachersData,
             ),
           ),
         );
@@ -95,7 +101,9 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const CircularProgressIndicator(color: Colors.white),
+              const Icon(Icons.school_rounded, size: 100, color: Colors.amber),
+              const SizedBox(height: 30),
+              const Text('نظام الإدارة المدرسية - EMIS', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 40),
               LinearProgressIndicator(value: _progressValue, backgroundColor: Colors.white24, valueColor: const AlwaysStoppedAnimation<Color>(Colors.greenAccent), minHeight: 6, borderRadius: BorderRadius.circular(10)),
               const SizedBox(height: 20),
