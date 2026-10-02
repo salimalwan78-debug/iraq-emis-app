@@ -23,51 +23,44 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
     _startFetchingData();
   }
 
-  // خوارزمية ذكية لاستخراج الاسم العربي الحقيقي من التوكن
-  String _extractRealNameFromToken() {
-    try {
-      String jwt = widget.token.toLowerCase().startsWith('bearer ') ? widget.token.substring(7).trim() : widget.token;
-      final parts = jwt.split('.');
-      if (parts.length == 3) {
-        String payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
-        Map<String, dynamic> data = jsonDecode(payload);
-        
-        // البحث عن أي قيمة تحتوي على حروف عربية (الاسم الحقيقي)
-        final arabicRegex = RegExp(r'[\u0600-\u06FF]');
-        for (var value in data.values) {
-          if (value is String && arabicRegex.hasMatch(value)) {
-            return value; 
-          }
-        }
-        return data['unique_name'] ?? data['name'] ?? "مستخدم النظام";
-      }
-    } catch (e) {
-      debugPrint("خطأ في فك التوكن: $e");
-    }
-    return "مستخدم النظام";
-  }
-
   Future<void> _startFetchingData() async {
     String authHeader = widget.token.toLowerCase().startsWith('bearer ') ? widget.token : 'Bearer ${widget.token}';
     final headers = {'Authorization': authHeader, 'Accept': 'application/json, text/plain, */*'};
 
     try {
-      String realUserName = _extractRealNameFromToken();
+      // 1. استخراج معرف الدخول من التوكن (مثل ali05.diw)
+      String loginId = "مستخدم النظام";
+      String jwt = authHeader.substring(7).trim();
+      final parts = jwt.split('.');
+      if (parts.length == 3) {
+        String payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+        Map<String, dynamic> data = jsonDecode(payload);
+        loginId = data['unique_name'] ?? data['name'] ?? loginId;
+      }
 
-      setState(() { _statusText = "جاري جلب بيانات المدرسة..."; _progressValue = 0.4; });
+      // 2. جلب بيانات المدرسة
+      setState(() { _statusText = "جاري جلب بيانات المدرسة..."; _progressValue = 0.3; });
       final schoolRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/school/getschoolinformation/${widget.schoolId}'), headers: headers);
-      if (schoolRes.statusCode != 200 && schoolRes.statusCode != 204) throw Exception("فشل جلب بيانات المدرسة");
-      final schoolData = schoolRes.body.isNotEmpty ? jsonDecode(utf8.decode(schoolRes.bodyBytes)) : {};
+      final schoolData = schoolRes.statusCode == 200 ? jsonDecode(utf8.decode(schoolRes.bodyBytes)) : {};
 
-      setState(() { _statusText = "جاري تحميل سجلات الطلاب وتوزيعاتهم..."; _progressValue = 0.7; });
+      // 3. جلب سجلات الطلاب
+      setState(() { _statusText = "جاري تحميل سجلات الطلاب وتوزيعاتهم..."; _progressValue = 0.6; });
       final studentsRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/student/getstudents?page=1&rowsPerPage=3000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}'), headers: headers);
-      if (studentsRes.statusCode != 200 && studentsRes.statusCode != 204) throw Exception("فشل جلب سجلات الطلاب");
-      final studentsData = studentsRes.body.isNotEmpty ? jsonDecode(utf8.decode(studentsRes.bodyBytes))['data'] ?? [] : [];
+      final studentsData = studentsRes.statusCode == 200 ? jsonDecode(utf8.decode(studentsRes.bodyBytes))['data'] ?? [] : [];
 
-      setState(() { _statusText = "جاري تحميل بيانات الكادر التعليمي..."; _progressValue = 0.9; });
+      // 4. جلب الكادر التعليمي واستخراج الاسم الحقيقي
+      setState(() { _statusText = "جاري معالجة بيانات الحساب..."; _progressValue = 0.8; });
       final teachersRes = await http.get(Uri.parse('https://emis.moedu.gov.iq/api/employee/getemployeesbyentities?page=1&rowsPerPage=1000&sortBy=id&sortOrder=desc&entityId=${widget.schoolId}&isTeacher=true'), headers: headers);
-      if (teachersRes.statusCode != 200 && teachersRes.statusCode != 204) throw Exception("فشل جلب سجلات المعلمين");
-      final teachersData = teachersRes.body.isNotEmpty ? jsonDecode(utf8.decode(teachersRes.bodyBytes))['data'] ?? [] : [];
+      final teachersData = teachersRes.statusCode == 200 ? jsonDecode(utf8.decode(teachersRes.bodyBytes))['data'] ?? [] : [];
+
+      // البحث عن الاسم العربي الحقيقي بمطابقة معرف الدخول مع بيانات المعلمين
+      String realUserName = loginId;
+      for (var teacher in teachersData) {
+        if (teacher['createdByUser'] == loginId || teacher['updatedByUser'] == loginId) {
+          realUserName = teacher['employeeFullName'] ?? realUserName;
+          break;
+        }
+      }
 
       setState(() { _statusText = "اكتمل التحميل بنجاح!"; _progressValue = 1.0; });
       await Future.delayed(const Duration(milliseconds: 500));
@@ -80,7 +73,6 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
               token: authHeader,
               schoolId: widget.schoolId,
               schoolName: schoolData['schoolName'] ?? 'مدرسة غير معروفة',
-              schoolCensus: schoolData['sensusNumber'] ?? widget.schoolId,
               userName: realUserName,
               allStudents: studentsData,
               allTeachers: teachersData,
@@ -89,9 +81,7 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
-        setState(() { _statusText = "حدث خطأ أثناء التحميل: يرجى التحقق من الشبكة وإعادة تسجيل الدخول"; });
-      }
+      if (mounted) setState(() { _statusText = "حدث خطأ أثناء التحميل: يرجى التحقق من الشبكة"; });
     }
   }
 
@@ -105,26 +95,11 @@ class _LoadingDataScreenState extends State<LoadingDataScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.school_rounded, size: 100, color: Colors.amber),
-              const SizedBox(height: 30),
-              const Text(
-                'نظام الإدارة المدرسية - EMIS',
-                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-              ),
+              const CircularProgressIndicator(color: Colors.white),
               const SizedBox(height: 40),
-              LinearProgressIndicator(
-                value: _progressValue,
-                backgroundColor: Colors.white24,
-                valueColor: const AlwaysStoppedAnimation<Color>(Colors.greenAccent),
-                minHeight: 6,
-                borderRadius: BorderRadius.circular(10),
-              ),
+              LinearProgressIndicator(value: _progressValue, backgroundColor: Colors.white24, valueColor: const AlwaysStoppedAnimation<Color>(Colors.greenAccent), minHeight: 6, borderRadius: BorderRadius.circular(10)),
               const SizedBox(height: 20),
-              Text(
-                _statusText,
-                style: const TextStyle(color: Colors.white70, fontSize: 16),
-                textAlign: TextAlign.center,
-              ),
+              Text(_statusText, style: const TextStyle(color: Colors.white70, fontSize: 16), textAlign: TextAlign.center),
             ],
           ),
         ),
