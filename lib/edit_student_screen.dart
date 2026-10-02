@@ -101,3 +101,38 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     _buildDataField('رقم الهوية', _studentData!['identification']?['idNumber'] ?? 'غير متوفر'),
                     _buildDataField('رقم الهاتف', _studentData!['homePhoneNumber'] ?? 'غير متوفر'),
                     const SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: () {
+                        // سنقوم هنا ببرمجة طلب الـ PUT/POST لحفظ التعديلات لاحقاً
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      child: const Text('حفظ التعديلات', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    )
+                  ],
+                ),
+              )
+          ],
+        ),
+      ),
+    );
+  }
+
+  // تصميم موحد لعرض أو تعديل الحقول
+  Widget _buildDataField(String label, dynamic value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: TextFormField(
+        initialValue: value?.toString() ?? '',
+        decoration: InputDecoration(
+          labelText: label,
+          filled: true,
+          fillColor: Colors.grey.shade100,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide.none,
+          ),
+        ),
+      ),
+    );
+  }
+}
