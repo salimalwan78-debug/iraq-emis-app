@@ -1,4 +1,115 @@
-var foundToken = searchStorage(localStorage) || searchStorage(sessionStorage);
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'dashboard_screen.dart';
+
+class EmisWebviewScreen extends StatefulWidget {
+  const EmisWebviewScreen({super.key});
+
+  @override
+  State<EmisWebviewScreen> createState() => _EmisWebviewScreenState();
+}
+
+class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFFFFFFFF))
+      // 1. فتح قناة اتصال لاستقبال الـ Token ورقم المدرسة من الجافاسكربت
+      ..addJavaScriptChannel(
+        'AuthChannel',
+        onMessageReceived: (JavaScriptMessage message) {
+          try {
+            final data = jsonDecode(message.message);
+            final schoolId = data['schoolId'];
+            final token = data['token'];
+            
+            // إذا تم التقاط البيانات بنجاح، نغلق المتصفح وننتقل للوحة التحكم
+            if (schoolId != null && token != null) {
+              // يمكنك هنا حفظ الـ token في SharedPreferences لاستخدامه لاحقاً
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const DashboardScreen()),
+              );
+            }
+          } catch (e) {
+            debugPrint("خطأ في قراءة بيانات الدخول: $e");
+          }
+        },
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (String url) {
+            if (mounted) setState(() => _isLoading = true);
+          },
+          onPageFinished: (String url) {
+            if (mounted) setState(() => _isLoading = false);
+            _injectTokenScanner();
+          },
+          // فحص الروابط مع كل تنقل لالتقاط اللحظة التي يتم فيها الدخول
+          onUrlChange: (UrlChange change) {
+            _injectTokenScanner();
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
+  }
+
+  // 2. حقن منطق الاكتشاف الخاص بك بداخل المتصفح
+  void _injectTokenScanner() {
+    const String jsCode = r'''
+      (function() {
+        // اكتشاف رقم المدرسة من الرابط
+        var schoolMatch = location.pathname.match(/\/centers\/schools\/(\d+)/);
+        
+        // دالة تنظيف واكتشاف الـ JWT
+        function cleanBearer(value) {
+            if (!value) return null;
+            var s = String(value).trim();
+            if (/^Bearer\s+/i.test(s)) {
+                var t = s.replace(/^Bearer\s+/i, "").trim();
+                if (/^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) return t;
+            }
+            if (/^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(s)) return s;
+            return null;
+        }
+
+        // البحث العميق في الذاكرة المؤقتة
+        function searchStorage(storage) {
+            try {
+                for (var i = 0; i < storage.length; i++) {
+                    var key = storage.key(i);
+                    var value = storage.getItem(key);
+                    var token = cleanBearer(value);
+                    if (token) return token;
+                    
+                    try {
+                        var obj = JSON.parse(value);
+                        var walk = function(x) {
+                            if (!x) return null;
+                            if (typeof x === "string") return cleanBearer(x);
+                            if (typeof x === "object") {
+                                for (var k in x) {
+                                    var result = walk(x[k]);
+                                    if (result) return result;
+                                }
+                            }
+                            return null;
+                        };
+                        token = walk(obj);
+                        if (token) return token;
+                    } catch(e) {}
+                }
+            } catch(e) {}
+            return null;
+        }
+        var foundToken = searchStorage(localStorage) || searchStorage(sessionStorage);
         
         // إذا اكتشفنا المدرسة والـ Token، نرسلها لفلاتر عبر القناة
         if (schoolMatch && foundToken) {
