@@ -1,7 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
+import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
+import 'package:onnxruntime/onnxruntime.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -90,719 +94,275 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 
   // ============================================================
-  // REMOVE.BG WEBSITE WORKFLOW
+  // LOCAL BACKGROUND REMOVAL - BiRefNet Lite 512 ONNX
   // ============================================================
-  // This intentionally follows the website upload flow rather than
-  // the official API: /upload -> /trust_tokens -> /images -> inline.
-  // The web workflow is private and can change at any time.
+  //
+  // The model is bundled locally with the application:
+  //   assets/models/birefnet_lite_512.onnx
+  //
+  // Input:
+  //   RGB, 512x512, NCHW
+  //   ImageNet normalization
+  //
+  // Output:
+  //   Single-channel logits, 512x512.
+  //   Sigmoid is applied here and the result becomes the alpha mask.
+  //
+  // This implementation does NOT contact remove.bg or any other
+  // background-removal service.
 
-  String? _extractCsrfToken(String html) {
-    final patterns = <RegExp>[
-      RegExp(
-        r'''<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''<meta[^>]+content=["']([^"']+)["'][^>]+name=["']csrf-token["']''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''csrfToken\s*[:=]\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''csrf_token\s*[:=]\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ),
-    ];
+  static const String _birefNetModelAsset =
+      'assets/models/birefnet_lite_512.onnx';
 
-    for (final pattern in patterns) {
-      final match = pattern.firstMatch(html);
-      if (match != null && match.group(1) != null) {
-        return match.group(1);
-      }
-    }
-    return null;
+  OrtSession? _birefNetSession;
+  OrtSessionOptions? _birefNetSessionOptions;
+
+  Future<void> _initializeBiRefNet() async {
+    if (_birefNetSession != null) return;
+
+    OrtEnv.instance.init();
+
+    _birefNetSessionOptions = OrtSessionOptions();
+
+    final modelData = await rootBundle.load(_birefNetModelAsset);
+    final modelBytes = modelData.buffer.asUint8List(
+      modelData.offsetInBytes,
+      modelData.lengthInBytes,
+    );
+
+    _birefNetSession = OrtSession.fromBuffer(
+      modelBytes,
+      _birefNetSessionOptions!,
+    );
+
+    debugPrint(
+      'BiRefNet Lite loaded. '
+      'inputs=${_birefNetSession!.inputNames} '
+      'outputs=${_birefNetSession!.outputNames}',
+    );
   }
 
-  String _cookieHeader(Map<String, String> headers) {
-    final raw = headers['set-cookie'];
-    if (raw == null || raw.isEmpty) return '';
+  List<double> _flattenOrtValue(dynamic value) {
+    final result = <double>[];
 
-    // Extract only cookie name=value pairs. This also tolerates an
-    // Expires=... attribute containing commas.
-    final cookies = <String, String>{};
-    final matches = RegExp(
-      r'(?:^|,\s*)([A-Za-z0-9_\-]+)=([^;,]*)(?:;|,|$)',
-    ).allMatches(raw);
-
-    for (final match in matches) {
-      final name = match.group(1);
-      final value = match.group(2);
-      if (name != null && value != null) {
-        cookies[name] = value;
-      }
-    }
-
-    // Fallback for the common simple Set-Cookie form.
-    if (cookies.isEmpty) {
-      for (final part in raw.split(',')) {
-        final first = part.split(';').first.trim();
-        final eq = first.indexOf('=');
-        if (eq > 0) {
-          cookies[first.substring(0, eq).trim()] =
-              first.substring(eq + 1).trim();
+    void walk(dynamic item) {
+      if (item is List) {
+        for (final child in item) {
+          walk(child);
         }
+      } else if (item is num) {
+        result.add(item.toDouble());
       }
     }
 
-    return cookies.entries
-        .map((entry) => '${entry.key}=${entry.value}')
-        .join('; ');
+    walk(value);
+    return result;
   }
 
-  String _mergeCookieHeaders(String first, String second) {
-    final cookies = <String, String>{};
-
-    void add(String value) {
-      if (value.isEmpty) return;
-      for (final part in value.split(';')) {
-        final item = part.trim();
-        final eq = item.indexOf('=');
-        if (eq <= 0) continue;
-        cookies[item.substring(0, eq).trim()] =
-            item.substring(eq + 1).trim();
-      }
+  double _sigmoid(double value) {
+    if (value >= 0) {
+      final z = math.exp(-value);
+      return 1.0 / (1.0 + z);
     }
 
-    add(first);
-    add(second);
-
-    return cookies.entries
-        .map((entry) => '${entry.key}=${entry.value}')
-        .join('; ');
+    final z = math.exp(value);
+    return z / (1.0 + z);
   }
 
-  String? _extractTrustToken(String body) {
-    final patterns = <RegExp>[
-      RegExp(
-        r'''useToken\(["']([^"']+)["']\)''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''"trust_token"\s*:\s*"([^"]+)"''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''"trustToken"\s*:\s*"([^"]+)"''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        r'''["']?(?:trust_token|trustToken|token)["']?\s*[:=]\s*["']([^"']+)["']''',
-        caseSensitive: false,
-      ),
-    ];
-
-    for (final pattern in patterns) {
-      final match = pattern.firstMatch(body);
-      if (match != null && match.group(1) != null) {
-        final token = match.group(1)!.trim();
-        if (token.isNotEmpty) return token;
-      }
-    }
+  Future<File?> _removeBackgroundUsingBiRefNet(File imageFile) async {
+    final stopwatch = Stopwatch()..start();
 
     try {
-      final decoded = jsonDecode(body);
-      if (decoded is Map) {
-        final values = [
-          decoded['trust_token'],
-          decoded['trustToken'],
-          decoded['token'],
-          decoded['csrf_token'],
-          decoded['csrfToken'],
-        ];
-        for (final value in values) {
-          if (value != null && value.toString().trim().isNotEmpty) {
-            return value.toString().trim();
-          }
+      await _initializeBiRefNet();
+
+      final session = _birefNetSession;
+      if (session == null) {
+        throw Exception('تعذر تهيئة نموذج BiRefNet Lite 512');
+      }
+
+      final sourceBytes = await imageFile.readAsBytes();
+      var sourceImage = img.decodeImage(sourceBytes);
+
+      if (sourceImage == null) {
+        throw Exception('تعذر قراءة الصورة');
+      }
+
+      // Respect the original camera/gallery orientation before inference.
+      sourceImage = img.bakeOrientation(sourceImage);
+
+      final originalWidth = sourceImage.width;
+      final originalHeight = sourceImage.height;
+
+      if (originalWidth <= 0 || originalHeight <= 0) {
+        throw Exception('أبعاد الصورة غير صحيحة');
+      }
+
+      // BiRefNet Lite 512 expects a square 512x512 RGB input.
+      final resized = img.copyResize(
+        sourceImage,
+        width: 512,
+        height: 512,
+        interpolation: img.Interpolation.linear,
+      );
+
+      const mean = <double>[0.485, 0.456, 0.406];
+      const std = <double>[0.229, 0.224, 0.225];
+
+      // NCHW: [1, 3, 512, 512].
+      final inputData = Float32List(1 * 3 * 512 * 512);
+      final planeSize = 512 * 512;
+
+      for (var y = 0; y < 512; y++) {
+        for (var x = 0; x < 512; x++) {
+          final pixel = resized.getPixel(x, y);
+
+          final r = pixel.r.toDouble() / 255.0;
+          final g = pixel.g.toDouble() / 255.0;
+          final b = pixel.b.toDouble() / 255.0;
+
+          final offset = y * 512 + x;
+
+          inputData[offset] = (r - mean[0]) / std[0];
+          inputData[planeSize + offset] = (g - mean[1]) / std[1];
+          inputData[(2 * planeSize) + offset] =
+              (b - mean[2]) / std[2];
         }
-        final data = decoded['data'];
-        if (data is Map) {
-          for (final value in [
-            data['trust_token'],
-            data['trustToken'],
-            data['token'],
-          ]) {
-            if (value != null && value.toString().trim().isNotEmpty) {
-              return value.toString().trim();
-            }
-          }
-        }
-      }
-    } catch (_) {}
-
-    return null;
-  }
-
-  Future<File?> _removeBackgroundUsingWebsite(File imageFile) async {
-    final client = http.Client();
-
-    try {
-      const uploadPageUrl = 'https://www.remove.bg/upload';
-
-      final browserHeaders = <String, String>{
-        'User-Agent':
-            'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
-        'Accept':
-            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,'
-            'image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'ar-IQ,ar;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-      };
-
-      // 1) Start a browser-like session. The website's private upload
-      // workflow uses the CSRF token AND the cookies created by the first
-      // page request. A plain Dart http.Client does not keep cookies by
-      // itself, so we carry them explicitly.
-      final homeResponse = await client.get(
-        Uri.parse('https://www.remove.bg/'),
-        headers: browserHeaders,
-      );
-
-      if (homeResponse.statusCode < 200 || homeResponse.statusCode >= 400) {
-        throw Exception(
-          'فشل فتح remove.bg: ${homeResponse.statusCode}',
-        );
       }
 
-      final homeHtml = utf8.decode(
-        homeResponse.bodyBytes,
-        allowMalformed: true,
+      final inputTensor = OrtValueTensor.createTensorWithDataList(
+        inputData,
+        const [1, 3, 512, 512],
       );
 
-      final uploadPageResponse = await client.get(
-        Uri.parse(uploadPageUrl),
-        headers: {
-          ...browserHeaders,
-          'Referer': 'https://www.remove.bg/',
-        },
-      );
-
-      if (uploadPageResponse.statusCode < 200 ||
-          uploadPageResponse.statusCode >= 400) {
-        throw Exception(
-          'فشل فتح صفحة remove.bg/upload: ${uploadPageResponse.statusCode}',
-        );
-      }
-
-      final uploadHtml = utf8.decode(
-        uploadPageResponse.bodyBytes,
-        allowMalformed: true,
-      );
-
-      // The CSRF token must belong to the current /upload session.
-      // Prefer /upload over the home page because remove.bg can rotate the
-      // token when the upload page is created.
-      var csrfToken = _extractCsrfToken(uploadHtml) ??
-          _extractCsrfToken(homeHtml);
-
-      var cookieHeader = _mergeCookieHeaders(
-        _cookieHeader(homeResponse.headers),
-        _cookieHeader(uploadPageResponse.headers),
-      );
-
-      debugPrint(
-        'remove.bg CSRF: ${csrfToken == null ? "غير موجود" : "تم الحصول عليه"}',
-      );
-      debugPrint(
-        'remove.bg cookies: ${cookieHeader.isEmpty ? "غير موجودة" : "تم الحصول عليها"}',
-      );
-
-      if (csrfToken == null || csrfToken.isEmpty) {
-        throw Exception(
-          'لم يتم العثور على CSRF token في remove.bg',
-        );
-      }
-
-      // 2) Request the private trust token.
-      final trustHeaders = <String, String>{
-        ...browserHeaders,
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': uploadPageUrl,
-        'Origin': 'https://www.remove.bg',
-        'X-CSRF-Token': csrfToken,
-        'X-Requested-With': 'XMLHttpRequest',
-      };
-
-      if (cookieHeader.isNotEmpty) {
-        trustHeaders['Cookie'] = cookieHeader;
-      }
-
-      var trustResponse = await client.post(
-        Uri.parse('https://www.remove.bg/trust_tokens'),
-        headers: trustHeaders,
-      );
-
-      var trustBody = utf8.decode(
-        trustResponse.bodyBytes,
-        allowMalformed: true,
-      );
-
-      // remove.bg may rotate the CSRF token between the initial page
-      // response and the upload session. If the server explicitly reports
-      // invalid_csrf_token, refresh /upload once and retry with the new
-      // token and the updated cookies.
-      if (trustResponse.statusCode == 422 &&
-          trustBody.contains('invalid_csrf_token')) {
-        // The error response itself may contain the current CSRF token.
-        // Use it first, then fall back to a fresh /upload page token.
-        final serverCsrfToken = _extractCsrfToken(trustBody);
-
-        cookieHeader = _mergeCookieHeaders(
-          cookieHeader,
-          _cookieHeader(trustResponse.headers),
-        );
-
-        final refreshResponse = await client.get(
-          Uri.parse(uploadPageUrl),
-          headers: {
-            ...browserHeaders,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Referer': 'https://www.remove.bg/',
-            if (cookieHeader.isNotEmpty) 'Cookie': cookieHeader,
-          },
-        );
-
-        final refreshHtml = utf8.decode(
-          refreshResponse.bodyBytes,
-          allowMalformed: true,
-        );
-
-        final refreshedCsrf = _extractCsrfToken(refreshHtml);
-        if (serverCsrfToken != null && serverCsrfToken.isNotEmpty) {
-          csrfToken = serverCsrfToken;
-        } else if (refreshedCsrf != null && refreshedCsrf.isNotEmpty) {
-          csrfToken = refreshedCsrf;
-        }
-
-        cookieHeader = _mergeCookieHeaders(
-          cookieHeader,
-          _cookieHeader(refreshResponse.headers),
-        );
-
-        final retryHeaders = <String, String>{
-          ...browserHeaders,
-          'Accept': 'application/json, text/plain, */*',
-          'Referer': uploadPageUrl,
-          'Origin': 'https://www.remove.bg',
-          'X-CSRF-Token': csrfToken,
-          'X-Requested-With': 'XMLHttpRequest',
-          if (cookieHeader.isNotEmpty) 'Cookie': cookieHeader,
-        };
-
-        trustResponse = await client.post(
-          Uri.parse('https://www.remove.bg/trust_tokens'),
-          headers: retryHeaders,
-        );
-
-        trustBody = utf8.decode(
-          trustResponse.bodyBytes,
-          allowMalformed: true,
-        );
-      }
-
-      debugPrint(
-        'remove.bg /trust_tokens status: ${trustResponse.statusCode}',
-      );
-      debugPrint(
-        'remove.bg /trust_tokens response: '
-        '${trustBody.length > 1000 ? trustBody.substring(0, 1000) : trustBody}',
-      );
-
-      if (trustResponse.statusCode < 200 ||
-          trustResponse.statusCode >= 300) {
-        throw Exception(
-          'فشل الحصول على trust token من remove.bg: '
-          '${trustResponse.statusCode}\n$trustBody',
-        );
-      }
-
-      final trustToken = _extractTrustToken(trustBody);
-
-      if (trustToken == null || trustToken.isEmpty) {
-        throw Exception('لم يتم العثور على trust token في استجابة remove.bg');
-      }
-
-      debugPrint('remove.bg trust token: تم الحصول عليه');
-
-      // 3) Upload using the actual website field name: image[original].
-      final imageRequest = http.MultipartRequest(
-        'POST',
-        Uri.parse('https://www.remove.bg/images'),
-      );
-
-      imageRequest.headers.addAll({
-        ...browserHeaders,
-        'Accept': 'application/json, text/plain, */*',
-        'Origin': 'https://www.remove.bg',
-        'Referer': uploadPageUrl,
-        'X-CSRF-Token': csrfToken,
-        'X-Requested-With': 'XMLHttpRequest',
-      });
-
-      if (cookieHeader.isNotEmpty) {
-        imageRequest.headers['Cookie'] = cookieHeader;
-      }
-
-      imageRequest.fields['trust_token'] = trustToken;
-
-      final fileName = imageFile.uri.pathSegments.isNotEmpty
-          ? imageFile.uri.pathSegments.last
-          : 'student.jpg';
-
-      imageRequest.files.add(
-        await http.MultipartFile.fromPath(
-          'image[original]',
-          imageFile.path,
-          filename: fileName,
-        ),
-      );
-
-      final imageUploadResponse = await imageRequest.send();
-      final uploadBytes = await imageUploadResponse.stream.toBytes();
-      final uploadBody = utf8.decode(
-        uploadBytes,
-        allowMalformed: true,
-      );
-
-      debugPrint(
-        'remove.bg /images status: ${imageUploadResponse.statusCode}',
-      );
-      debugPrint(
-        'remove.bg /images response: '
-        '${uploadBody.length > 2000 ? uploadBody.substring(0, 2000) : uploadBody}',
-      );
-
-      if (imageUploadResponse.statusCode < 200 ||
-          imageUploadResponse.statusCode >= 300) {
-        throw Exception(
-          'فشل رفع الصورة إلى remove.bg: ${imageUploadResponse.statusCode} '
-          '$uploadBody',
-        );
-      }
-
-      // 4) Extract the image id. Some versions return it directly;
-      // others return a URL that contains the id.
-      String? imageId;
-      String? inlineUrl;
+      final runOptions = OrtRunOptions();
 
       try {
-        final decoded = jsonDecode(uploadBody);
-        if (decoded is Map) {
-          final idCandidates = [
-            decoded['id'],
-            decoded['image_id'],
-            decoded['imageId'],
-          ];
-          for (final candidate in idCandidates) {
-            if (candidate != null && candidate.toString().isNotEmpty) {
-              imageId = candidate.toString();
-              break;
-            }
-          }
+        final inputName = session.inputNames.contains('input_image')
+            ? 'input_image'
+            : session.inputNames.first;
 
-          inlineUrl = _findStringRecursively(
-            decoded,
-            const ['url', 'inline_url', 'inlineUrl'],
+        final outputName = session.outputNames.contains('logits')
+            ? 'logits'
+            : session.outputNames.first;
+
+        debugPrint(
+          'BiRefNet inference: input=$inputName output=$outputName',
+        );
+
+        final outputs = await session.runAsync(
+          runOptions,
+          {inputName: inputTensor},
+          [outputName],
+        );
+
+        if (outputs == null || outputs.isEmpty || outputs.first == null) {
+          throw Exception('لم يرجع نموذج BiRefNet أي نتيجة');
+        }
+
+        final output = outputs.first!;
+
+        final logits = _flattenOrtValue(output.value);
+
+        if (logits.length < 512 * 512) {
+          throw Exception(
+            'حجم خرج BiRefNet غير متوقع: ${logits.length}',
           );
+        }
 
-          if (imageId == null && decoded['image'] is Map) {
-            final image = decoded['image'] as Map;
-            for (final candidate in [
-              image['id'],
-              image['image_id'],
-              image['imageId'],
-            ]) {
-              if (candidate != null && candidate.toString().isNotEmpty) {
-                imageId = candidate.toString();
-                break;
-              }
-            }
-            inlineUrl ??= _findStringRecursively(
-              image,
-              const ['url', 'inline_url', 'inlineUrl'],
+        // Convert logits -> alpha mask.
+        final mask512 = img.Image(
+          width: 512,
+          height: 512,
+          numChannels: 1,
+        );
+
+        for (var y = 0; y < 512; y++) {
+          for (var x = 0; x < 512; x++) {
+            final index = y * 512 + x;
+            final alpha = (_sigmoid(logits[index]) * 255.0)
+                .round()
+                .clamp(0, 255);
+
+            mask512.setPixelRgba(
+              x,
+              y,
+              alpha,
+              alpha,
+              alpha,
+              255,
             );
           }
         }
-      } catch (_) {}
 
-      imageId ??= RegExp(
-        r'''"(?:id|image_id|imageId)"\s*:\s*"([^"]+)"''',
-        caseSensitive: false,
-      ).firstMatch(uploadBody)?.group(1);
-
-      inlineUrl ??= RegExp(
-        r'''"(?:url|inline_url|inlineUrl)"\s*:\s*"([^"]+)"''',
-        caseSensitive: false,
-      ).firstMatch(uploadBody)?.group(1);
-
-      if ((imageId == null || imageId.isEmpty) &&
-          inlineUrl != null &&
-          inlineUrl!.isNotEmpty) {
-        final match = RegExp(
-          r'''/images/inline/([^/?#]+)''',
-          caseSensitive: false,
-        ).firstMatch(inlineUrl!);
-        imageId = match?.group(1);
-      }
-
-      if (imageId == null || imageId.isEmpty) {
-        throw Exception(
-          'لم يتم العثور على image ID في استجابة remove.bg',
-        );
-      }
-
-      debugPrint('remove.bg image ID: $imageId');
-
-      // 5) Poll /images/inline/{id} until preview_result is finished.
-      Uri? downloadUri;
-
-      for (int attempt = 0; attempt < 30; attempt++) {
-        await Future.delayed(Duration(seconds: attempt == 0 ? 1 : 2));
-
-        final inlineUri = Uri.parse(
-          'https://www.remove.bg/images/inline/$imageId',
+        // Restore the mask to the original photo dimensions using
+        // bilinear interpolation, as recommended for this model.
+        final fullMask = img.copyResize(
+          mask512,
+          width: originalWidth,
+          height: originalHeight,
+          interpolation: img.Interpolation.linear,
         );
 
-        final inlineHeaders = <String, String>{
-          ...browserHeaders,
-          'Accept': 'application/json, text/plain, */*',
-          'Referer': uploadPageUrl,
-          'Origin': 'https://www.remove.bg',
-          'X-CSRF-Token': csrfToken,
-        };
-        if (cookieHeader.isNotEmpty) {
-          inlineHeaders['Cookie'] = cookieHeader;
+        // Preserve the original RGB pixels and replace only alpha.
+        final result = img.Image(
+          width: originalWidth,
+          height: originalHeight,
+          numChannels: 4,
+        );
+
+        for (var y = 0; y < originalHeight; y++) {
+          for (var x = 0; x < originalWidth; x++) {
+            final sourcePixel = sourceImage.getPixel(x, y);
+            final maskPixel = fullMask.getPixel(x, y);
+
+            result.setPixelRgba(
+              x,
+              y,
+              sourcePixel.r,
+              sourcePixel.g,
+              sourcePixel.b,
+              maskPixel.r,
+            );
+          }
         }
 
-        final inlineResponse = await client.get(
-          inlineUri,
-          headers: inlineHeaders,
-        );
+        final outputPath =
+            '${imageFile.path}_birefnet_${DateTime.now().millisecondsSinceEpoch}.png';
 
-        final inlineBody = utf8.decode(
-          inlineResponse.bodyBytes,
-          allowMalformed: true,
+        final outputFile = File(outputPath);
+        await outputFile.writeAsBytes(
+          img.encodePng(result, level: 6),
+          flush: true,
         );
 
         debugPrint(
-          'remove.bg polling ${attempt + 1}/30 '
-          'status=${inlineResponse.statusCode}',
+          'BiRefNet Lite completed in '
+          '${stopwatch.elapsedMilliseconds} ms: $outputPath',
         );
 
-        if (inlineResponse.statusCode < 200 ||
-            inlineResponse.statusCode >= 300) {
-          continue;
-        }
-
-        String? state;
-        String? resultUrl;
-
-        try {
-          final decoded = jsonDecode(inlineBody);
-          if (decoded is Map) {
-            state = decoded['state']?.toString();
-            resultUrl = _findStringRecursively(
-              decoded,
-              const [
-                'url',
-                'download_url',
-                'downloadUrl',
-                'preview_url',
-                'previewUrl',
-              ],
-            );
-
-            final preview = decoded['preview_result'];
-            if (preview is Map) {
-              state ??= preview['state']?.toString();
-              resultUrl ??= _findStringRecursively(
-                preview,
-                const [
-                  'url',
-                  'download_url',
-                  'downloadUrl',
-                  'preview_url',
-                  'previewUrl',
-                ],
-              );
-            }
-          }
-        } catch (_) {}
-
-        state ??= RegExp(
-          r'''"state"\s*:\s*"([^"]+)"''',
-          caseSensitive: false,
-        ).firstMatch(inlineBody)?.group(1);
-
-        resultUrl ??= RegExp(
-          r'''"(?:url|download_url|downloadUrl|preview_url|previewUrl)"\s*:\s*"([^"]+)"''',
-          caseSensitive: false,
-        ).firstMatch(inlineBody)?.group(1);
-
-        if (state != null) {
-          debugPrint('remove.bg processing state: $state');
-        }
-
-        if (resultUrl != null && resultUrl.isNotEmpty) {
-          resultUrl = _decodeJsonUrl(resultUrl);
-          if (resultUrl.startsWith('http://') ||
-              resultUrl.startsWith('https://')) {
-            downloadUri = Uri.tryParse(resultUrl);
-          } else if (resultUrl.startsWith('/')) {
-            downloadUri = Uri.parse(
-              'https://www.remove.bg$resultUrl',
-            );
-          }
-        }
-
-        if (state?.toLowerCase() == 'finished' && downloadUri != null) {
-          break;
-        }
-
-        if (downloadUri != null) break;
-
-        if (state?.toLowerCase() == 'failed' ||
-            state?.toLowerCase() == 'error') {
-          throw Exception('remove.bg فشل في معالجة الصورة');
-        }
+        return outputFile;
+      } finally {
+        inputTensor.release();
+        runOptions.release();
       }
-
-      if (downloadUri == null) {
-        throw Exception(
-          'انتهى وقت انتظار معالجة الصورة من remove.bg',
-        );
-      }
-
-      debugPrint('remove.bg download URL: $downloadUri');
-
-      // 6) Download the Free result.
-      final resultResponse = await client.get(
-        downloadUri,
-        headers: {
-          ...browserHeaders,
-          'Accept': '*/*',
-          'Referer': uploadPageUrl,
-        },
-      );
-
-      if (resultResponse.statusCode < 200 ||
-          resultResponse.statusCode >= 300) {
-        throw Exception(
-          'فشل تنزيل نتيجة remove.bg: ${resultResponse.statusCode}',
-        );
-      }
-
-      final resultBytes = resultResponse.bodyBytes;
-
-      // 7) The captured Free website flow returns a ZIP. Extract color.jpg.
-      List<int> finalImageBytes;
-      final isZip = resultBytes.length >= 4 &&
-          resultBytes[0] == 0x50 &&
-          resultBytes[1] == 0x4B &&
-          resultBytes[2] == 0x03 &&
-          resultBytes[3] == 0x04;
-
-      if (isZip) {
-        final archive = ZipDecoder().decodeBytes(
-          resultBytes,
-          verify: false,
-        );
-
-        ArchiveFile? colorFile;
-        for (final file in archive) {
-          final name = file.name.toLowerCase();
-          if (name == 'color.jpg' ||
-              name.endsWith('/color.jpg') ||
-              name == 'color.jpeg' ||
-              name.endsWith('/color.jpeg')) {
-            colorFile = file;
-            break;
-          }
-        }
-
-        colorFile ??= archive.firstWhere(
-          (file) {
-            final name = file.name.toLowerCase();
-            return file.isFile &&
-                (name.endsWith('.jpg') ||
-                    name.endsWith('.jpeg') ||
-                    name.endsWith('.png'));
-          },
-          orElse: () => throw Exception(
-            'لم يتم العثور على صورة داخل نتيجة remove.bg',
-          ),
-        );
-
-        finalImageBytes = colorFile.readBytes() ?? <int>[];
-      } else {
-        finalImageBytes = resultBytes;
-      }
-
-      if (finalImageBytes.isEmpty) {
-        throw Exception('ملف الصورة الناتج من remove.bg فارغ');
-      }
-
-      final outputPath =
-          '${imageFile.path}_removebg_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final outputFile = File(outputPath);
-      await outputFile.writeAsBytes(finalImageBytes, flush: true);
-
-      return outputFile;
+    } catch (e, stackTrace) {
+      debugPrint('BiRefNet Lite error: $e');
+      debugPrint('$stackTrace');
+      rethrow;
     } finally {
-      client.close();
+      stopwatch.stop();
     }
   }
 
-  String? _findStringRecursively(
-    dynamic object,
-    List<String> wantedKeys,
-  ) {
-    if (object is Map) {
-      for (final key in wantedKeys) {
-        final value = object[key];
-        if (value != null && value is String && value.trim().isNotEmpty) {
-          return value;
-        }
-      }
-      for (final value in object.values) {
-        final result = _findStringRecursively(value, wantedKeys);
-        if (result != null) return result;
-      }
-    }
+  @override
+  void dispose() {
+    _birefNetSession?.release();
+    _birefNetSession = null;
 
-    if (object is List) {
-      for (final value in object) {
-        final result = _findStringRecursively(value, wantedKeys);
-        if (result != null) return result;
-      }
-    }
+    _birefNetSessionOptions?.release();
+    _birefNetSessionOptions = null;
 
-    return null;
-  }
-
-  String _decodeJsonUrl(String value) {
-    var result = value;
-    try {
-      result = jsonDecode('"$value"') as String;
-    } catch (_) {
-      result = value
-          .replaceAll(r'\/', '/')
-          .replaceAll(r'\u0026', '&');
-    }
-    return result;
+    super.dispose();
   }
 
   // ============================================================
@@ -876,7 +436,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                           CircularProgressIndicator(),
                           SizedBox(height: 12),
                           Text(
-                            'جاري رفع الصورة ومعالجة الخلفية...',
+                            'جاري معالجة الصورة وإزالة الخلفية محليًا...',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: Colors.blue,
@@ -898,7 +458,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                             setDialogState(() => isProcessing = true);
                             try {
                               final processed =
-                                  await _removeBackgroundUsingWebsite(
+                                  await _removeBackgroundUsingBiRefNet(
                                 currentImage,
                               );
 
@@ -922,7 +482,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                 ),
                               );
                             } catch (e) {
-                              debugPrint('Remove.bg error: $e');
+                              debugPrint('BiRefNet Lite error: $e');
                               if (!mounted) return;
 
                               setDialogState(() => isProcessing = false);
