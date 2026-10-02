@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'dashboard_screen.dart';
+import 'loading_data_screen.dart';
 
 class EmisWebviewScreen extends StatefulWidget {
   const EmisWebviewScreen({super.key});
@@ -21,7 +21,6 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFFFFFFF))
-      // فتح قناة اتصال لاستقبال الـ Token ورقم المدرسة من الجافاسكربت
       ..addJavaScriptChannel(
         'AuthChannel',
         onMessageReceived: (JavaScriptMessage message) {
@@ -30,12 +29,12 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             final schoolId = data['schoolId'];
             final token = data['token'];
             
-            // إذا تم التقاط البيانات بنجاح، نغلق المتصفح ونمررها لشاشة لوحة التحكم
             if (schoolId != null && token != null) {
+              // التوجيه إلى شاشة التحميل لجلب كافة البيانات
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => DashboardScreen(
+                  builder: (context) => LoadingDataScreen(
                     token: token.toString(),
                     schoolId: schoolId.toString(),
                   ),
@@ -56,7 +55,6 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             if (mounted) setState(() => _isLoading = false);
             _injectTokenScanner();
           },
-          // فحص الروابط مع كل تنقل لالتقاط اللحظة التي يتم فيها الدخول
           onUrlChange: (UrlChange change) {
             _injectTokenScanner();
           },
@@ -68,14 +66,10 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
       ..loadRequest(Uri.parse('https://emis.moedu.gov.iq'));
   }
 
-  // حقن منطق الاكتشاف بداخل المتصفح
   void _injectTokenScanner() {
     const String jsCode = r'''
       (function() {
-        // اكتشاف رقم المدرسة من الرابط
         var schoolMatch = location.pathname.match(/\/centers\/schools\/(\d+)/);
-        
-        // دالة تنظيف واكتشاف الـ JWT
         function cleanBearer(value) {
             if (!value) return null;
             var s = String(value).trim();
@@ -87,7 +81,6 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
             return null;
         }
 
-        // البحث العميق في الذاكرة المؤقتة
         function searchStorage(storage) {
             try {
                 for (var i = 0; i < storage.length; i++) {
@@ -95,7 +88,6 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
                     var value = storage.getItem(key);
                     var token = cleanBearer(value);
                     if (token) return token;
-                    
                     try {
                         var obj = JSON.parse(value);
                         var walk = function(x) {
@@ -118,8 +110,6 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
         }
 
         var foundToken = searchStorage(localStorage) || searchStorage(sessionStorage);
-        
-        // إذا اكتشفنا المدرسة والـ Token، نرسلها لفلاتر عبر القناة
         if (schoolMatch && foundToken) {
             AuthChannel.postMessage(JSON.stringify({
                 schoolId: schoolMatch[1],
@@ -146,19 +136,6 @@ class _EmisWebviewScreenState extends State<EmisWebviewScreen> {
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: () => _controller.reload(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
-            tooltip: 'تخطي للوحة التحكم',
-            onPressed: () {
-              // تمرير قيم فارغة كخطة بديلة في حال التخطي اليدوي
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const DashboardScreen(token: '', schoolId: ''),
-                ),
-              );
-            },
           ),
         ],
       ),
