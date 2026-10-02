@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppCore {
   static ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
   static final AudioPlayer audioPlayer = AudioPlayer();
-  static bool isAudioMuted = false;
+  static bool isAudioMuted = true; // اجعل القيمة الافتراضية صحيحة (موقف لحين قراءة التفضيلات)
   static double currentVolume = 0.5;
 
   static Future<void> initPreferences() async {
@@ -13,12 +13,15 @@ class AppCore {
     bool isDark = prefs.getBool('isDark') ?? false;
     themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
 
-    isAudioMuted = prefs.getBool('isAudioMuted') ?? false;
+    // قراءة الحالة المحفوظة بدقة (افتراضياً صامت إلى أن يفعله المستخدم)
+    isAudioMuted = prefs.getBool('isAudioMuted') ?? true;
     currentVolume = prefs.getDouble('currentVolume') ?? 0.5;
-    audioPlayer.setVolume(currentVolume);
+    await audioPlayer.setVolume(currentVolume);
 
     if (!isAudioMuted) {
-      playRelaxMusic();
+      await playRelaxMusic();
+    } else {
+      await audioPlayer.stop();
     }
   }
 
