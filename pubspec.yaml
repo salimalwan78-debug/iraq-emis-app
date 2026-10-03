@@ -1,44 +1,38 @@
-name: iraq_emis
-description: A new Flutter project for Iraq EMIS System.
-
-publish_to: 'none'
+name: emis_student_manager
+description: EMIS student management application with local ML Kit selfie segmentation background removal.
+publish_to: "none"
 
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
-  flutter_localizations:
-    sdk: flutter
+  # HTTP requests to EMIS API
+  http: ^1.5.0
 
-  cupertino_icons: ^1.0.2
-  http: ^1.1.0
-  webview_flutter: ^4.4.2
-  audioplayers: ^5.2.1
-  video_player: ^2.8.2
+  # Camera / Gallery
+  image_picker: ^1.2.0
 
-  # الكاميرا واختيار الصور
-  image_picker: ^1.0.7
+  # Image decoding, resizing and PNG/JPEG encoding
+  image: ^4.10.1
 
-  # فك ملف ZIP الناتج من مسار Free في remove.bg
-  archive: ^4.0.7
+  # Local on-device person/background segmentation.
+  # Version 0.10.1 supports Dart 3.8+ and avoids the newer
+  # Flutter 3.44 / Dart 3.12 requirement of 0.12.x.
+  google_mlkit_selfie_segmentation: ^0.10.1
 
-  # التخزين المحلي
-  shared_preferences: ^2.2.2
+  cupertino_icons: ^1.0.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^2.0.0
+
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
-
-  assets:
-    - assets/avatar.png
-    - assets/relax.mp3
-    - assets/intro.mp4
