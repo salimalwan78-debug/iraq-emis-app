@@ -26,96 +26,76 @@ class EditStudentScreen extends StatefulWidget {
 class _EditStudentScreenState extends State<EditStudentScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
-  // Arabic display names for coded EMIS values. The raw coded values are
-  // deliberately kept inside _studentData so saving still sends the exact
-  // values returned by EMIS.
-  final Map<String, String> _displayValues = {};
-  final Map<String, Map<String, String>> _referenceMaps = {};
+  // ============================================================
+  // EMIS LIVE REFERENCE DATA
+  // ============================================================
 
-  // Reference fields whose option endpoints are confirmed by the supplied
-  // EMIS source files. Raw values remain in _studentData for saving.
-  static const Set<String> _referenceFields = {
-    'stageId',
-    'classRoomId',
+  final Map<String, List<Map<String, dynamic>>> _options = {};
+  final Set<String> _loadingOptions = <String>{};
+
+  static const Map<String, String> _optionEndpoints = {
+    'countryOfBirth': '/selectoption/بلد الولادة',
+    'idType': '/selectoption/IdentificationType',
+    'issuingCountry': '/selectoption/بلد الإصدار',
+    'gender': '/selectoption/Gender',
+    'motherTongue': '/selectoption/لغة',
+    'bloodGroup': '/selectoption/فصيلة الدم',
+    'religion': '/selectoption/الديانة',
+    'specialNeeds': '/selectoption/ذوي الإحتياجات الخاصة',
+    'economicLevel': '/selectoption/حالة الاقتصادية',
   };
 
   final Map<String, String> _officialArabicNames = {
-    'name': 'الإسم',
-    'fatherName': 'إسم الأب',
+    'name': 'الإسم', 'fatherName': 'إسم الأب',
     'grandFatherName': 'اسم والد الأب',
-    'surName': 'اللقب',
-    'motherName': 'إسم الأم',
-    'mothersFatherName': 'اسم والد الأم',
+    'fathersGrandFatherName': 'اسم جد الأب', 'surName': 'اللقب',
+    'motherName': 'إسم الأم', 'mothersFatherName': 'اسم والد الأم',
     'mothersGrandFatherName': 'اسم جد الأم',
-    'birthDate': 'تاريخ التولد',
-    'idNumber': 'رقم البطاقة الوطنية الموحدة',
-    'recordNumber': 'رقم السجل',
-    'pageNumber': 'رقم الصحيفة',
-    'town': 'المدينة/القرية',
-    'closestLocation': 'أقرب نقطة دالة',
-    'street': 'المحلة',
-    'homePhoneNumber': 'رقم الهاتف',
-    'religion': 'الديانة',
-    'bloodGroup': 'فئة الدم',
-    'gender': 'الجنس',
-    'nationality': 'الجنسية',
-    'name': 'الإسم',
-    'fatherName': 'إسم الأب',
-    'grandFatherName': 'اسم والد الأب',
-    'fathersGrandFatherName': 'اسم جد الأب',
-    'surName': 'اللقب',
-    'motherName': 'إسم الأم',
-    'mothersFatherName': 'اسم والد الأم',
-    'mothersGrandFatherName': 'اسم جد الأم',
-    'dateOfBirth': 'تاريخ التولّد',
-    'birthDate': 'تاريخ التولّد',
-    'countryOfBirth': 'محل الولادة',
-    'gender': 'الجنس',
-    'nationality': 'الجنسية',
-    'homeTown': 'مسقط الرأس',
-    'motherTongue': 'اللغة الأم',
-    'maritalStatus': 'الحالة الاجتماعية',
-    'bloodGroup': 'فئة الدم',
-    'religion': 'الديانة',
-    'homePhoneNumber': 'رقم الهاتف',
-    'notes': 'ملاحظات',
-    'identification': 'المعلومات الرئيسية',
-    'idNumber': 'رقم الهوية',
-    'idType': 'نوع الهوية',
-    'issuingCountry': 'بلد الإصدار',
-    'recordNumber': 'رقم السجل',
-    'pageNumber': 'رقم الصحيفة',
-    'issuer': 'جهة الإصدار',
-    'issuingDate': 'تاريخ الإصدار',
-    'nameOfDocument': 'نوع الوثيقة',
+    'dateOfBirth': 'تاريخ التولّد', 'gender': 'الجنس',
+    'nationality': 'الجنسية', 'countryOfBirth': 'محل الولادة',
+    'homeTown': 'مسقط الرأس', 'motherTongue': 'اللغة الأم',
+    'maritalStatus': 'الحالة الاجتماعية', 'bloodGroup': 'فئة الدم',
+    'religion': 'الديانة', 'homePhoneNumber': 'رقم الهاتف',
+    'notes': 'ملاحظات', 'censusNumber': 'رقم الإحصاء',
+    'identification': 'وثيقة التعريف', 'idNumber': 'رقم الهوية',
+    'issuingCountry': 'بلد الإصدار', 'idType': 'نوع الهوية',
+    'jinsiyaIdNumber': 'رقم شهادة الجنسية', 'issuer': 'جهة الإصدار',
+    'recordNumber': 'رقم السجل', 'pageNumber': 'رقم الصحيفة',
+    'issuingDate': 'تاريخ الإصدار', 'nameOfDocument': 'نوع الوثيقة',
+    'birthCertificateNumber': 'رقم شهادة الولادة',
+    'otherIdNumber': 'رقم الهوية الأخرى',
     'fatherIdentification': 'هوية الأب',
-    'address': 'العنوان',
-    'addressType': 'نوع العنوان',
-    'countryStructureId': 'هيكل الدولة',
-    'town': 'المدينة/القرية',
-    'area': 'الحي',
-    'quarter': 'المحلة',
-    'street': 'زقاق',
-    'apartmentNumber': 'رقم الشقة',
-    'closestLocation': 'أقرب نقطة دالة',
-    'buildingNumber': 'رقم البناية',
-    'schoolId': 'المدرسة',
-    'stageId': 'الصف',
-    'classRoomId': 'الشعبة',
-    'censusNumber': 'الرقم الإحصائي',
-    'specialNeeds': 'الاحتياجات الخاصة',
-    'studyLanguage': 'لغة الدراسة',
-    'economicLevel': 'المستوى الاقتصادي',
-    'isCoveredBySocialWelfare': 'مشمول بالرعاية الاجتماعية؟',
+    'motherIdentification': 'هوية الأم', 'specialNeeds': 'الاحتياجات الخاصة، إن وجدت',
+    'studyLanguage': 'لغة الدراسة', 'economicLevel': 'المستوى المعيشي',
+    'isCoveredBySocialWelfare': 'مشمول بمنحة الرعاية الاجتماعية؟',
     'isDroppedOutFromSchool': 'متسرّب من المدرسة؟',
     'lastYearResult': 'نتيجة العام الدراسي السابق',
+    'lastAcademicYearId': 'العام الدراسي السابق',
+    'lastCompletedStageId': 'المرحلة الدراسية السابقة',
+    'lastSchoolId': 'المدرسة السابقة', 'academicYearId': 'العام الدراسي',
+    'stageId': 'الصف الدراسي', 'schoolId': 'المدرسة',
+    'classRoomId': 'الشعبة', 'studentStatus': 'حالة الطالب',
+    'studentStatusName': 'حالة الطالب', 'address': 'العنوان',
+    'addressType': 'نوع العنوان', 'countryStructureId': 'الموقع الجغرافي',
+    'town': 'المدينة/القرية', 'area': 'الحي', 'quarter': 'المحلة',
+    'street': 'زقاق', 'apartmentNumber': 'رقم الشقة',
+    'buildingNumber': 'رقم البناية', 'address1': 'عنوان 1',
+    'address2': 'عنوان 2', 'closestLocation': 'أقرب نقطة دالة',
+    'schoolPhoneNumber': 'رقم هاتف مدير المدرسة',
+    'mobilePhoneNumber': 'رقم هاتف المعلم',
+    'employeePhoneNumber': 'رقم هاتف الموظف', 'email': 'البريد الإلكتروني',
+    'website': 'الموقع الإلكتروني', 'latitude': 'خط العرض',
+    'longitude': 'خط الطول', 'imageUrl': 'الصورة',
     'ageExceptionReason': 'سبب استثناء العمر',
     'genderExceptionReason': 'سبب استثناء الجنس',
-    'isDisabled': 'مفعّل',
+    'classificationName': 'التصنيف', 'classification': 'التصنيف',
+    'schoolName': 'المدرسة', 'stageName': 'الصف الدراسي',
+    'classRoomName': 'الشعبة', 'academicYearName': 'العام الدراسي',
   };
 
   @override
@@ -124,215 +104,321 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     _fetchStudentData();
   }
 
-  Future<void> _fetchStudentData() async {
-    final url = Uri.parse(
-      'https://emis.moedu.gov.iq/api/student/getstudent/${widget.studentId}',
-    );
+  Map<String, dynamic> _unwrap(dynamic decoded) {
+    if (decoded is Map<String, dynamic>) {
+      final data = decoded['data'];
+      if (data is Map) return Map<String, dynamic>.from(data);
+      return decoded;
+    }
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    throw Exception('استجابة بيانات الطالب غير صالحة');
+  }
 
+  Future<void> _fetchStudentData() async {
     try {
       final response = await http.get(
-        url,
-        headers: {
-          'Authorization': widget.token,
-          'Accept': 'application/json',
-        },
+        Uri.parse('https://emis.moedu.gov.iq/api/student/getstudent/${widget.studentId}'),
+        headers: {'Authorization': widget.token, 'Accept': 'application/json'},
       );
+      if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}');
+      final student = _unwrap(jsonDecode(utf8.decode(response.bodyBytes)));
 
-      if (response.statusCode == 200) {
-        if (!mounted) return;
-        final decoded = jsonDecode(
-          utf8.decode(response.bodyBytes),
-        );
-
-        if (decoded is! Map) {
-          throw Exception('استجابة بيانات الطالب غير صالحة');
-        }
-
-        final student = _unwrapStudentResponse(decoded);
-        await _loadReferenceLabels(student);
-
-        if (!mounted) return;
-        setState(() {
-          _studentData = student;
-          _isLoading = false;
-        });
-      } else if (mounted) {
-        setState(() => _isLoading = false);
+      // These are the real option APIs observed in the supplied EMIS HAR.
+      for (final key in _optionEndpoints.keys) {
+        await _loadOptions(key);
       }
+      await _loadStageOptions(student['schoolId']?.toString());
+      await _loadClassroomOptions(
+        student['schoolId']?.toString(),
+        student['stageId']?.toString(),
+      );
+      await _loadCountryStructure();
+
+      if (!mounted) return;
+      setState(() {
+        _studentData = student;
+        _isLoading = false;
+      });
     } catch (e) {
       debugPrint('خطأ في جلب بيانات الطالب: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // ============================================================
-  // EMIS FIELD / DISPLAY MAPPING
-  // ============================================================
-
-  // The saved HTML is the rendered EMIS edit page. Closed Quasar selects do
-  // not contain their complete option lists in the DOM, so we never invent
-  // endpoint names here. If EMIS returns {value, displayName}, that Arabic
-  // displayName is used directly; otherwise the raw code is preserved.
-  Map<String, dynamic> _unwrapStudentResponse(dynamic decoded) {
-    if (decoded is Map) {
-      final data = decoded['data'];
-      if (data is Map) return Map<String, dynamic>.from(data);
-      return Map<String, dynamic>.from(decoded);
-    }
-    throw Exception('استجابة بيانات الطالب غير صالحة');
-  }
-
-  Future<void> _loadReferenceLabels(Map<String, dynamic> student) async {
-    _displayValues.clear();
-    _referenceMaps.clear();
-    _collectInlineDisplayValues(student);
-
-    // These two endpoints are present in the supplied EMIS source material.
-    // They return {value, displayName}.
-    final schoolId = student['schoolId']?.toString() ?? '';
-    final stageId = student['stageId']?.toString() ?? '';
-
-    if (schoolId.isNotEmpty) {
-      final stages = await _fetchOptions(
-        '/selectoption/getAvailableStagesForStudent',
-        query: {'schoolId': schoolId},
-      );
-      if (stages.isNotEmpty) {
-        _referenceMaps['stageId'] = stages;
-        final display = _lookupDisplayName(stages, student['stageId']);
-        if (display != null) _displayValues['stageId'] = display;
-      }
-
-      // Fallback endpoint also confirmed by the supplied EMIS scripts.
-      if (!_referenceMaps.containsKey('stageId')) {
-        final fallback = await _fetchOptions(
-          '/selectoption/getschoolstages/$schoolId',
-        );
-        if (fallback.isNotEmpty) {
-          _referenceMaps['stageId'] = fallback;
-          final display = _lookupDisplayName(fallback, student['stageId']);
-          if (display != null) _displayValues['stageId'] = display;
-        }
-      }
-    }
-
-    if (schoolId.isNotEmpty && stageId.isNotEmpty) {
-      final classrooms = await _fetchOptions(
-        '/selectoption/getClassRooms',
-        query: {'schoolId': schoolId, 'stageId': stageId},
-      );
-      if (classrooms.isNotEmpty) {
-        _referenceMaps['classRoomId'] = classrooms;
-        final display = _lookupDisplayName(classrooms, student['classRoomId']);
-        if (display != null) _displayValues['classRoomId'] = display;
-      }
-    }
-  }
-
-  Future<Map<String, String>> _fetchOptions(
-    String endpoint, {
-    Map<String, String>? query,
-  }) async {
-    try {
-      final base = Uri.parse('https://emis.moedu.gov.iq/api$endpoint');
-      final uri = query == null || query.isEmpty
-          ? base
-          : base.replace(queryParameters: query);
-      final response = await http.get(
-        uri,
-        headers: {
-          'Authorization': widget.token,
-          'Accept': 'application/json',
-        },
-      );
-      if (response.statusCode != 200) return {};
-
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-      final items = _extractOptionList(decoded);
-      final result = <String, String>{};
-      for (final item in items) {
-        final value = _firstNonNull(item, const ['value', 'id', 'code', 'key']);
-        final display = _firstNonNull(
-          item,
-          const ['displayName', 'name', 'label', 'text', 'title'],
-        );
-        if (value != null && display != null) {
-          result[_normaliseCode(value)] = display.toString().trim();
-        }
-      }
-      return result;
-    } catch (e) {
-      debugPrint('تعذر جلب خيارات EMIS من $endpoint: $e');
-      return {};
-    }
-  }
-
-  List<Map<String, dynamic>> _extractOptionList(dynamic decoded) {
+  Future<List<Map<String, dynamic>>> _getOptions(String path) async {
+    final response = await http.get(
+      Uri.parse('https://emis.moedu.gov.iq/api$path'),
+      headers: {'Authorization': widget.token, 'Accept': 'application/json'},
+    );
+    if (response.statusCode != 200) return <Map<String, dynamic>>[];
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     dynamic value = decoded;
-    if (value is Map) {
-      for (final key in const ['data', 'items', 'results', 'options', 'list']) {
-        final candidate = value[key];
-        if (candidate is List) {
-          value = candidate;
-          break;
+    if (value is Map) value = value['data'] ?? value['items'] ?? value['results'] ?? value;
+    if (value is! List) return <Map<String, dynamic>>[];
+    return value.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  Future<void> _loadOptions(String key) async {
+    if (_options.containsKey(key) || _loadingOptions.contains(key)) return;
+    final endpoint = _optionEndpoints[key];
+    if (endpoint == null) return;
+    _loadingOptions.add(key);
+    try {
+      final list = await _getOptions(endpoint);
+      if (list.isNotEmpty) _options[key] = list;
+    } catch (e) {
+      debugPrint('تعذر تحميل خيارات $key: $e');
+    } finally {
+      _loadingOptions.remove(key);
+    }
+  }
+
+  Future<void> _loadStageOptions(String? schoolId) async {
+    if (schoolId == null || schoolId.isEmpty) return;
+    try {
+      final list = await _getOptions('/selectoption/getAvailableStagesForStudent?schoolId=$schoolId');
+      if (list.isNotEmpty) _options['stageId'] = list;
+    } catch (e) { debugPrint('تعذر تحميل الصفوف: $e'); }
+  }
+
+  Future<void> _loadClassroomOptions(String? schoolId, String? stageId) async {
+    if (schoolId == null || stageId == null || schoolId.isEmpty || stageId.isEmpty) return;
+    try {
+      final list = await _getOptions('/selectoption/getClassRooms?schoolId=$schoolId&stageId=$stageId');
+      _options['classRoomId'] = list;
+    } catch (e) { debugPrint('تعذر تحميل الشعب: $e'); }
+  }
+
+  Future<void> _loadStageDetails(String? stageId) async {
+    if (stageId == null || stageId.isEmpty) return;
+    try {
+      final list = await _getOptions('/selectoption/getstagedetails/$stageId');
+      if (list.isNotEmpty) _options['stageDetails'] = list;
+    } catch (e) { debugPrint('تعذر تحميل تفاصيل الصف: $e'); }
+  }
+
+  Future<void> _loadCountryStructure() async {
+    try {
+      final list = await _getOptions('/CountryStructure/getcountrystructure');
+      final flattened = <Map<String, dynamic>>[];
+      void walk(List<dynamic> nodes, String prefix) {
+        for (final node in nodes) {
+          if (node is! Map) continue;
+          final id = node['id'];
+          final name = node['name']?.toString() ?? '';
+          if (id != null) flattened.add({'value': id, 'displayName': prefix.isEmpty ? name : '$prefix / $name'});
+          final children = node['children'];
+          if (children is List) walk(children, prefix.isEmpty ? name : '$prefix / $name');
         }
       }
+      walk(list, '');
+      if (flattened.isNotEmpty) _options['countryStructureId'] = flattened;
+    } catch (e) { debugPrint('تعذر تحميل هيكل العناوين: $e'); }
+  }
+
+  String _label(String key) => _officialArabicNames[key] ?? key;
+
+  bool _isDateField(String key) => <String>{
+    'dateOfBirth', 'issuingDate', 'effectiveDate', 'startDate', 'endDate',
+  }.contains(key);
+
+  bool _isRequired(String key, [Map<String, dynamic>? parent]) {
+    // Required rules are applied to fields that EMIS treats as core student
+    // identity/academic fields. Conditional identity fields are handled below.
+    const core = <String>{'name','fatherName','grandFatherName','motherName','dateOfBirth','gender','nationality','stageId','classRoomId'};
+    if (core.contains(key)) return true;
+    final idType = parent?['idType'] ?? _studentData?['identification']?['idType'];
+    if (key == 'idNumber' && (idType == 12 || idType == 3)) return true;
+    if (key == 'jinsiyaIdNumber' && idType == 3) return true;
+    return false;
+  }
+
+  dynamic _optionValue(Map<String, dynamic> option) => option['value'] ?? option['id'];
+  String _optionText(Map<String, dynamic> option) => (option['displayName'] ?? option['name'] ?? option['label'] ?? option['text'] ?? _optionValue(option)?.toString() ?? '').toString();
+
+  bool _sameValue(dynamic a, dynamic b) => a?.toString() == b?.toString();
+
+  Widget _dropdownField({
+    required String key,
+    required Map<String, dynamic> owner,
+    required bool isDark,
+    required Color textColor,
+  }) {
+    final items = _options[key] ?? const <Map<String, dynamic>>[];
+    final value = owner[key];
+    Map<String, dynamic>? selected;
+    for (final item in items) {
+      if (_sameValue(_optionValue(item), value)) { selected = item; break; }
     }
-    if (value is! List) return [];
-    return value.whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item)).toList();
+    final safeValue = selected == null ? null : _optionValue(selected);
+    final requiredField = _isRequired(key, owner);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 15),
+      child: DropdownButtonFormField<dynamic>(
+        value: safeValue,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: requiredField ? '${_label(key)} *' : _label(key),
+          labelStyle: const TextStyle(color: Colors.grey),
+          filled: true,
+          fillColor: isDark ? Colors.black12 : Colors.grey[50],
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        dropdownColor: isDark ? const Color(0xFF252525) : Colors.white,
+        style: TextStyle(color: textColor, fontSize: 16),
+        items: items.map((item) => DropdownMenuItem<dynamic>(
+          value: _optionValue(item), child: Text(_optionText(item)),
+        )).toList(),
+        validator: requiredField ? (v) => v == null || v.toString().isEmpty ? 'هذا الحقل مطلوب' : null : null,
+        onChanged: (newValue) async {
+          setState(() {
+            owner[key] = newValue;
+            if (key == 'stageId') owner['classRoomId'] = null;
+            if (key == 'idType' && owner.containsKey('idNumber')) {
+              // Do not erase the stored identity object; only conditional UI changes.
+            }
+          });
+          if (key == 'stageId') {
+            await _loadStageDetails(newValue?.toString());
+            await _loadClassroomOptions(_studentData?['schoolId']?.toString(), newValue?.toString());
+            if (mounted) setState(() {});
+          }
+        },
+      ),
+    );
   }
 
-  dynamic _firstNonNull(Map item, List<String> keys) {
-    for (final key in keys) {
-      final value = item[key];
-      if (value != null && value.toString().trim().isNotEmpty) return value;
+  Future<void> _pickDate(Map<String, dynamic> owner, String key) async {
+    DateTime initial = DateTime.now();
+    final raw = owner[key]?.toString();
+    if (raw != null && raw.isNotEmpty) initial = DateTime.tryParse(raw) ?? initial;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
+      locale: const Locale('ar'),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        owner[key] = '${picked.year.toString().padLeft(4,'0')}-${picked.month.toString().padLeft(2,'0')}-${picked.day.toString().padLeft(2,'0')}';
+      });
     }
-    return null;
   }
 
-  String _normaliseCode(dynamic value) {
-    if (value == null) return '';
-    final text = value.toString().trim();
-    final number = num.tryParse(text);
-    if (number != null && number == number.toInt()) return number.toInt().toString();
-    return text.toLowerCase();
-  }
+  Widget _fieldFor(String key, dynamic value, Map<String, dynamic> owner, bool isDark, Color textColor) {
+    if (key == 'id' || key == 'createdAt' || key == 'updatedAt' || key.endsWith('Name')) return const SizedBox.shrink();
+    if (key == 'schoolId' || key == 'academicYearId') return const SizedBox.shrink();
 
-  String? _lookupDisplayName(Map<String, String> map, dynamic rawValue) {
-    if (rawValue is Map) {
-      final inline = _firstNonNull(rawValue, const [
-        'displayName', 'name', 'label', 'text', 'title'
-      ]);
-      if (inline != null) return inline.toString().trim();
-      rawValue = _firstNonNull(rawValue, const ['value', 'id', 'code']);
+    if (_optionEndpoints.containsKey(key) || key == 'stageId' || key == 'classRoomId' || key == 'countryStructureId') {
+      return _dropdownField(key: key, owner: owner, isDark: isDark, textColor: textColor);
     }
-    return map[_normaliseCode(rawValue)];
+
+    if (_isDateField(key)) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 15),
+        child: TextFormField(
+          controller: TextEditingController(text: value?.toString() ?? ''),
+          readOnly: true,
+          onTap: () => _pickDate(owner, key),
+          style: TextStyle(color: textColor, fontSize: 16),
+          decoration: InputDecoration(
+            labelText: _isRequired(key, owner) ? '${_label(key)} *' : _label(key),
+            suffixIcon: const Icon(Icons.calendar_month),
+            filled: true, fillColor: isDark ? Colors.black12 : Colors.grey[50],
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+      );
+    }
+
+    if (value is bool) {
+      return SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(_label(key), style: TextStyle(color: textColor)),
+        value: value,
+        onChanged: (v) => setState(() => owner[key] = v),
+      );
+    }
+
+    if (value is List) {
+      if (key == 'specialNeeds') {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 15),
+          child: DropdownButtonFormField<String>(
+            value: value.isNotEmpty && value.first.toString().isNotEmpty ? value.first.toString() : null,
+            isExpanded: true,
+            decoration: InputDecoration(labelText: _label(key), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+            items: (_options[key] ?? const []).map((o) => DropdownMenuItem<String>(value: _optionValue(o)?.toString(), child: Text(_optionText(o)))).toList(),
+            onChanged: (v) => setState(() => owner[key] = v == null ? <String>[] : <String>[v]),
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    }
+
+    return PlainTextField(
+      label: _isRequired(key, owner) ? '${_label(key)} *' : _label(key),
+      initialValue: value,
+      isDark: isDark,
+      textColor: textColor,
+      readOnly: false,
+      requiredField: _isRequired(key, owner),
+      onChanged: (v) => owner[key] = v,
+    );
   }
 
-  void _collectInlineDisplayValues(Map<String, dynamic> map, [String prefix = '']) {
-    map.forEach((key, value) {
-      final path = prefix.isEmpty ? key : '$prefix.$key';
+  List<Widget> _buildDynamicFields(Map<String, dynamic> dataMap, bool isDark, Color textColor, {String prefix = ''}) {
+    final widgets = <Widget>[];
+    dataMap.forEach((key, value) {
+      // EMIS returns several calculated/display-only properties. They should
+      // never be edited or sent back as user-entered fields.
+      if ({'id','createdAt','updatedAt','imageUrl','schoolId','academicYearId','schoolName','stageName','classRoomName','academicYearName','studentStatusName','classificationName','lastSchoolName','lastCompletedStageName','lastAcademicYearName'}.contains(key)) return;
+
       if (value is Map) {
-        final display = _firstNonNull(value, const [
-          'displayName', 'name', 'label', 'text', 'title'
-        ]);
-        if (display != null) _displayValues[path] = display.toString().trim();
-        _collectInlineDisplayValues(Map<String, dynamic>.from(value), path);
+        // Conditional identity fields: EMIS changes the visible fields based
+        // on identification type. Render the selected type first, then only
+        // the applicable identity fields.
+        if (key == 'identification') {
+          final m = value is Map<String, dynamic>
+              ? value
+              : Map<String, dynamic>.from(value);
+          widgets.add(Card(
+            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            margin: const EdgeInsets.only(bottom: 15, top: 10),
+            child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('وثيقة التعريف', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
+              const SizedBox(height: 12),
+              if (m.containsKey('idType')) _dropdownField(key: 'idType', owner: m, isDark: isDark, textColor: textColor),
+              ...m.entries.where((e) => e.key != 'idType' && _identityFieldVisible(e.key, m['idType'])).map((e) => _fieldFor(e.key, e.value, m, isDark, textColor)),
+            ])),
+          ));
+          return;
+        }
+        widgets.add(Card(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          margin: const EdgeInsets.only(bottom: 15, top: 10),
+          child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_label(key), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
+            const SizedBox(height: 12),
+            ..._buildDynamicFields(Map<String,dynamic>.from(value), isDark, textColor, prefix: '$prefix$key.'),
+          ])),
+        ));
+      } else {
+        widgets.add(_fieldFor(key, value, dataMap, isDark, textColor));
       }
     });
+    return widgets;
   }
 
-  String _displayValueFor(String key, dynamic value) {
-    final inline = _displayValues[key];
-    if (inline != null && inline.isNotEmpty) return inline;
-    if (value is Map) {
-      final display = _firstNonNull(value, const [
-        'displayName', 'name', 'label', 'text', 'title'
-      ]);
-      if (display != null) return display.toString().trim();
-    }
-    return value?.toString() ?? '';
+  bool _identityFieldVisible(String key, dynamic idType) {
+    final t = int.tryParse(idType?.toString() ?? '');
+    if (t == 3) return {'idNumber','jinsiyaIdNumber','issuer','recordNumber','pageNumber','issuingCountry','issuingDate','nameOfDocument'}.contains(key);
+    if (t == 12) return {'idNumber','issuingCountry','issuingDate','nameOfDocument'}.contains(key);
+    if (t == 22) return {'birthCertificateNumber','issuer','issuingDate','issuingCountry','nameOfDocument'}.contains(key);
+    if (t == 16) return {'otherIdNumber','nameOfDocument','issuer','issuingDate','issuingCountry'}.contains(key);
+    return true;
   }
 
   // ============================================================
@@ -776,6 +862,10 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
   Future<void> _saveStudentData() async {
     if (_studentData == null) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يرجى ملء الحقول الإلزامية المشار إليها بعلامة *'), backgroundColor: Colors.red));
+      return;
+    }
 
     setState(() => _isSaving = true);
 
@@ -847,89 +937,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 
   // ============================================================
-  // DYNAMIC FIELDS
-  // ============================================================
-
-  List<Widget> _buildDynamicFields(
-    Map<String, dynamic> dataMap,
-    bool isDark,
-    Color textColor, {
-    String prefix = '',
-  }) {
-    final List<Widget> widgets = [];
-
-    dataMap.forEach((key, value) {
-      final path = prefix.isEmpty ? key : '$prefix.$key';
-      if (key == 'imageUrl' ||
-          key == 'id' ||
-          key == 'createdAt' ||
-          key == 'updatedAt' ||
-          key == 'schoolId') {
-        return;
-      }
-
-      final arabicLabel = _officialArabicNames[key] ?? key;
-
-      if (value is Map<String, dynamic>) {
-        widgets.add(
-          Card(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            margin: const EdgeInsets.only(bottom: 15, top: 10),
-            elevation: 1,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(15),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    arabicLabel,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.indigo.shade400,
-                    ),
-                  ),
-                  const SizedBox(height: 15),
-                  ..._buildDynamicFields(
-                    value,
-                    isDark,
-                    textColor,
-                    prefix: path,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      } else if (value is List) {
-        // Complex lists are intentionally not rendered as text fields.
-      } else {
-        widgets.add(
-          PlainTextField(
-            label: arabicLabel,
-            initialValue: _displayValueFor(key, value),
-            isDark: isDark,
-            textColor: textColor,
-            readOnly: _referenceFields.contains(key),
-            onChanged: (v) {
-              // Coded EMIS fields must keep their original numeric/code value
-              // for the API. Their Arabic name is display-only.
-              if (!_referenceFields.contains(key)) {
-                dataMap[key] = v;
-              }
-            },
-          ),
-        );
-      }
-    });
-
-    return widgets;
-  }
-
-  // ============================================================
   // BUILD
   // ============================================================
 
@@ -979,7 +986,9 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                   : Column(
                       children: [
                         Expanded(
-                          child: ListView(
+                          child: Form(
+                            key: _formKey,
+                            child: ListView(
                             padding: const EdgeInsets.all(15),
                             children: [
                               Center(
@@ -1093,6 +1102,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                               ),
                             ],
                           ),
+                          ),
                         ),
                         Container(
                           padding: const EdgeInsets.all(15),
@@ -1144,6 +1154,7 @@ class PlainTextField extends StatefulWidget {
   final Color textColor;
   final Function(String) onChanged;
   final bool readOnly;
+  final bool requiredField;
 
   const PlainTextField({
     super.key,
@@ -1153,6 +1164,7 @@ class PlainTextField extends StatefulWidget {
     required this.textColor,
     required this.onChanged,
     this.readOnly = false,
+    this.requiredField = false,
   });
 
   @override
@@ -1184,6 +1196,9 @@ class _PlainTextFieldState extends State<PlainTextField> {
         controller: _controller,
         readOnly: widget.readOnly,
         onChanged: widget.onChanged,
+        validator: widget.requiredField
+            ? (value) => value == null || value.trim().isEmpty ? 'هذا الحقل مطلوب' : null
+            : null,
         style: TextStyle(
           color: widget.textColor,
           fontSize: 16,
