@@ -117,7 +117,7 @@ class SmartToolsScreen extends StatelessWidget {
               _buildToolCard(
                 context,
                 title: 'إضافة صور الطلاب جماعيًا',
-                subtitle: 'اختر الصف والشعبة، صوّر كل طالب، أزل الخلفية محليًا، ثم احفظ وانتقل للطالب التالي.',
+                subtitle: 'اختر الصف والشعبة من أعلى صفحة الأداة، ثم التقط الصورة أو اخترها من الجهاز واحفظ الطالب التالي.',
                 icon: Icons.camera_front_rounded,
                 color: Colors.blueAccent,
                 cardColor: cardColor,
