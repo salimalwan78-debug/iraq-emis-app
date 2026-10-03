@@ -36,7 +36,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
   File? _currentImage;
   bool _processing = false;
   bool _saving = false;
-  bool _removeBackgroundEnabled = false;
+  bool _backgroundRemovedForCurrentImage = false;
   SelfieSegmenter? _segmenter;
 
   List<String> get _stages => widget.allStudents
@@ -79,6 +79,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
       _notPhotographed.clear();
       _skipped.clear();
       _currentImage = null;
+      _backgroundRemovedForCurrentImage = false;
     });
   }
 
@@ -96,6 +97,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
       _notPhotographed.clear();
       _skipped.clear();
       _currentImage = null;
+      _backgroundRemovedForCurrentImage = false;
     });
   }
 
@@ -187,19 +189,9 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
 
       final originalFile = File(picked.path);
 
-      if (!_removeBackgroundEnabled) {
-        setState(() {
-          _currentImage = originalFile;
-        });
-        return;
-      }
-
-      setState(() => _processing = true);
-      final processed = await _removeBackground(originalFile);
-      if (!mounted) return;
       setState(() {
-        _currentImage = processed;
-        _processing = false;
+        _currentImage = originalFile;
+        _backgroundRemovedForCurrentImage = false;
       });
     } catch (e) {
       debugPrint('Batch photo processing error: $e');
@@ -212,6 +204,46 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _removeBackgroundFromCurrentImage() async {
+    if (_currentImage == null ||
+        _processing ||
+        _saving ||
+        _backgroundRemovedForCurrentImage) {
+      return;
+    }
+
+    final currentImage = _currentImage!;
+    setState(() => _processing = true);
+
+    try {
+      final processed = await _removeBackground(currentImage);
+      if (!mounted) return;
+
+      setState(() {
+        _currentImage = processed;
+        _backgroundRemovedForCurrentImage = true;
+        _processing = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تمت إزالة الخلفية من صورة الطالب'),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Manual background removal error: $e');
+      if (!mounted) return;
+
+      setState(() => _processing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تعذر إزالة الخلفية: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -237,6 +269,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
       _skipped.add(id);
       _notPhotographed.add(id);
       _currentImage = null;
+      _backgroundRemovedForCurrentImage = false;
       if (isLast) {
         _currentIndex = _students.length;
       } else {
@@ -330,6 +363,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
     final isLast = _currentIndex == _students.length - 1;
     setState(() {
       _currentImage = null;
+      _backgroundRemovedForCurrentImage = false;
       _currentIndex = isLast ? _students.length : _currentIndex + 1;
     });
   }
@@ -341,6 +375,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
       _notPhotographed.clear();
       _skipped.clear();
       _currentImage = null;
+      _backgroundRemovedForCurrentImage = false;
     });
   }
 
@@ -348,6 +383,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
     setState(() {
       _currentIndex = _firstPendingIndex(_students);
       _currentImage = null;
+      _backgroundRemovedForCurrentImage = false;
     });
   }
 
@@ -590,36 +626,40 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
                                     ],
                                   ),
                                   const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? Colors.white.withOpacity(.06)
-                                          : const Color(0xFFF1F4FA),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: SwitchListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      title: Text(
-                                        'إزالة الخلفية تلقائيًا',
-                                        style: TextStyle(
-                                          color: text,
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 54,
+                                    child: ElevatedButton.icon(
+                                      onPressed: _currentImage == null ||
+                                              _processing ||
+                                              _saving ||
+                                              _backgroundRemovedForCurrentImage
+                                          ? null
+                                          : _removeBackgroundFromCurrentImage,
+                                      icon: const Icon(
+                                        Icons.auto_fix_high_rounded,
+                                        color: Colors.white,
+                                      ),
+                                      label: Text(
+                                        _backgroundRemovedForCurrentImage
+                                            ? 'تمت إزالة الخلفية'
+                                            : 'إزالة الخلفية',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 15,
                                         ),
                                       ),
-                                      subtitle: Text(
-                                        _removeBackgroundEnabled
-                                            ? 'مفعّلة للصورة التالية'
-                                            : 'سيتم حفظ الصورة كما هي',
-                                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF7B61FF),
+                                        disabledBackgroundColor: isDark
+                                            ? Colors.white12
+                                            : Colors.grey.shade300,
+                                        disabledForegroundColor: Colors.grey,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(14),
+                                        ),
                                       ),
-                                      value: _removeBackgroundEnabled,
-                                      onChanged: _processing || _saving
-                                          ? null
-                                          : (value) => setState(
-                                                () => _removeBackgroundEnabled = value,
-                                              ),
                                     ),
                                   ),
                                   const SizedBox(height: 10),
