@@ -378,25 +378,57 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
     return null;
   }
 
+  /// The list returned by getstudents is a lightweight DTO intended for
+  /// listing/filtering. EMIS updatestudent expects the complete student DTO
+  /// returned by getstudent/{id}. Sending the lightweight list record causes
+  /// HTTP 400. Always refresh the complete record immediately before saving.
+  Future<Map<String, dynamic>?> _fetchFullStudent(String id) async {
+    final response = await http.get(
+      Uri.parse('https://emis.moedu.gov.iq/api/student/getstudent/$id'),
+      headers: {
+        'Authorization': widget.token,
+        'Accept': 'application/json',
+      },
+    );
+
+    final body = utf8.decode(response.bodyBytes);
+    debugPrint('Get full student $id: ${response.statusCode}');
+
+    if (response.statusCode != 200) {
+      debugPrint('Get full student response: $body');
+      throw Exception('تعذر جلب بيانات الطالب الكاملة (${response.statusCode})');
+    }
+
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) {
+      final data = decoded['data'];
+      if (data is Map) return Map<String, dynamic>.from(data);
+      return Map<String, dynamic>.from(decoded);
+    }
+
+    throw Exception('استجابة بيانات الطالب غير صالحة');
+  }
+
   Future<bool> _saveCurrentStudent() async {
     if (_students.isEmpty || _currentIndex >= _students.length || _currentImage == null) return false;
-    final student = _students[_currentIndex];
-    final id = _studentId(student);
+    final listedStudent = _students[_currentIndex];
+    final id = _studentId(listedStudent);
     if (id.isEmpty) return false;
 
     setState(() => _saving = true);
     try {
+      // IMPORTANT: getstudents returns a lightweight listing object. Do not
+      // send it to updatestudent. Fetch the exact full EMIS record first.
+      final fullStudent = await _fetchFullStudent(id);
+
       final imageUrl = await _uploadImage(_currentImage!);
       if (imageUrl == null || imageUrl.isEmpty) {
         throw Exception('تعذر رفع الصورة إلى EMIS');
       }
 
-      student['imageUrl'] = imageUrl;
-      final original = widget.allStudents.firstWhere(
-        (s) => s is Map && s['id']?.toString() == id,
-        orElse: () => student,
-      );
-      if (original is Map) original['imageUrl'] = imageUrl;
+      // Change only imageUrl in the complete server record. All other fields
+      // remain exactly as EMIS returned them.
+      fullStudent['imageUrl'] = imageUrl;
 
       final response = await http.post(
         Uri.parse('https://emis.moedu.gov.iq/api/student/updatestudent'),
@@ -405,11 +437,30 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: jsonEncode(student),
+        body: jsonEncode(fullStudent),
       );
 
+      final responseBody = utf8.decode(response.bodyBytes);
+      debugPrint('Update student $id: ${response.statusCode}');
+      debugPrint('Update student response: $responseBody');
+
       if (response.statusCode != 200 && response.statusCode != 204) {
-        throw Exception('فشل حفظ بيانات الطالب (${response.statusCode})');
+        String details = responseBody.trim();
+        if (details.length > 500) details = details.substring(0, 500);
+        throw Exception(
+          details.isEmpty
+              ? 'فشل حفظ بيانات الطالب (${response.statusCode})'
+              : 'فشل حفظ بيانات الطالب (${response.statusCode}): $details',
+        );
+      }
+
+      // Update local/list data only after EMIS confirms the save.
+      listedStudent['imageUrl'] = imageUrl;
+      final originalIndex = widget.allStudents.indexWhere(
+        (s) => s is Map && s['id']?.toString() == id,
+      );
+      if (originalIndex >= 0 && widget.allStudents[originalIndex] is Map) {
+        widget.allStudents[originalIndex]['imageUrl'] = imageUrl;
       }
 
       _photographed.add(id);
@@ -418,7 +469,14 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
     } catch (e) {
       debugPrint('Batch save error: $e');
       _notPhotographed.add(id);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل حفظ الطالب: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل حفظ الطالب: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return false;
     } finally {
       if (mounted) setState(() => _saving = false);
