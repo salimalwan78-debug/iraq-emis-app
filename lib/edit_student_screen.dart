@@ -30,9 +30,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
-  // Arabic display names for coded EMIS values. The raw coded values are
-  // deliberately kept inside _studentData so saving still sends the exact
-  // values returned by EMIS.
+  // Arabic display labels for EMIS coded/reference values.
   final Map<String, String> _displayValues = {};
   final Map<String, Map<String, String>> _referenceMaps = {};
 
@@ -107,13 +105,12 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       );
 
       if (response.statusCode == 200) {
-        if (!mounted) return;
         final decoded = jsonDecode(
           utf8.decode(response.bodyBytes),
         );
 
         if (decoded is! Map) {
-          throw Exception('استجابة بيانات الطالب غير صالحة');
+          throw const FormatException('بيانات الطالب ليست بصيغة صحيحة');
         }
 
         final student = Map<String, dynamic>.from(decoded);
@@ -133,10 +130,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
-  // ============================================================
-  // EMIS CODE -> ARABIC DISPLAY NAME
-  // ============================================================
-
   Future<void> _loadReferenceLabels(Map<String, dynamic> student) async {
     final keys = _referenceEndpointCandidates.keys
         .where((key) => student.containsKey(key) && student[key] != null)
@@ -146,16 +139,15 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       final map = await _fetchReferenceMap(key);
       if (map.isNotEmpty) {
         _referenceMaps[key] = map;
-        final raw = student[key];
-        final display = _lookupDisplayName(map, raw);
+        final display = _lookupDisplayName(map, student[key]);
         if (display != null && display.isNotEmpty) {
           _displayValues[key] = display;
         }
       }
     }
 
-    // Some EMIS responses return the option itself rather than just its code.
-    // Handle {value, displayName/name/label} without changing the raw object.
+    // Some EMIS responses return the option itself, e.g.:
+    // {"value": 1, "displayName": "ذكر"}.
     _collectInlineDisplayValues(student);
   }
 
@@ -164,6 +156,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     if (cached != null && cached.isNotEmpty) return cached;
 
     final endpoints = _referenceEndpointCandidates[field] ?? const <String>[];
+
     for (final endpoint in endpoints) {
       try {
         final response = await http.get(
@@ -213,7 +206,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     dynamic value = decoded;
 
     if (value is Map) {
-      for (final key in const ['data', 'items', 'results', 'options', 'list']) {
+      for (final key in const [
+        'data',
+        'items',
+        'results',
+        'options',
+        'list',
+      ]) {
         final candidate = value[key];
         if (candidate is List) {
           value = candidate;
@@ -233,7 +232,9 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   dynamic _firstNonNull(Map item, List<String> keys) {
     for (final key in keys) {
       final value = item[key];
-      if (value != null && value.toString().trim().isNotEmpty) return value;
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value;
+      }
     }
     return null;
   }
@@ -264,15 +265,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       rawValue = _firstNonNull(rawValue, const ['value', 'id', 'code']);
     }
 
-    final key = _normaliseCode(rawValue);
-    return map[key];
+    return map[_normaliseCode(rawValue)];
   }
 
-  void _collectInlineDisplayValues(
-    Map<String, dynamic> map, [String prefix = ''],
-  ) {
+  void _collectInlineDisplayValues(Map<String, dynamic> map, [String prefix = '']) {
     map.forEach((key, value) {
       final path = prefix.isEmpty ? key : '$prefix.$key';
+
       if (value is Map) {
         final display = _firstNonNull(value, const [
           'displayName',
@@ -284,10 +283,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         if (display != null) {
           _displayValues[path] = display.toString().trim();
         }
-        _collectInlineDisplayValues(
-          Map<String, dynamic>.from(value),
-          path,
-        );
+        _collectInlineDisplayValues(Map<String, dynamic>.from(value), path);
       }
     });
   }
@@ -300,7 +296,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     final resolved = map == null ? null : _lookupDisplayName(map, value);
     if (resolved != null && resolved.isNotEmpty) return resolved;
 
-    // If EMIS supplied an option object, prefer its Arabic display value.
     if (value is Map) {
       final display = _firstNonNull(value, const [
         'displayName',
@@ -833,13 +828,11 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   List<Widget> _buildDynamicFields(
     Map<String, dynamic> dataMap,
     bool isDark,
-    Color textColor, {
-    String prefix = '',
-  }) {
+    Color textColor,
+  ) {
     final List<Widget> widgets = [];
 
     dataMap.forEach((key, value) {
-      final path = prefix.isEmpty ? key : '$prefix.$key';
       if (key == 'imageUrl' ||
           key == 'id' ||
           key == 'createdAt' ||
@@ -873,12 +866,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     ),
                   ),
                   const SizedBox(height: 15),
-                  ..._buildDynamicFields(
-                    value,
-                    isDark,
-                    textColor,
-                    prefix: path,
-                  ),
+                  ..._buildDynamicFields(value, isDark, textColor),
                 ],
               ),
             ),
@@ -896,8 +884,6 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
             readOnly: _referenceEndpointCandidates.containsKey(key) &&
                 _displayValueFor(key, value) != value?.toString(),
             onChanged: (v) {
-              // Coded EMIS fields must keep their original numeric/code value
-              // for the API. Their Arabic name is display-only.
               if (!(_referenceEndpointCandidates.containsKey(key) &&
                   _displayValueFor(key, value) != value?.toString())) {
                 dataMap[key] = v;
@@ -1124,8 +1110,8 @@ class PlainTextField extends StatefulWidget {
   final dynamic initialValue;
   final bool isDark;
   final Color textColor;
-  final Function(String) onChanged;
   final bool readOnly;
+  final Function(String) onChanged;
 
   const PlainTextField({
     super.key,
@@ -1133,8 +1119,8 @@ class PlainTextField extends StatefulWidget {
     required this.initialValue,
     required this.isDark,
     required this.textColor,
-    required this.onChanged,
     this.readOnly = false,
+    required this.onChanged,
   });
 
   @override
