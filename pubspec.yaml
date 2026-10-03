@@ -24,9 +24,6 @@ dependencies:
   # الكاميرا والمعرض
   image_picker: ^1.0.7
 
-  # التعرف الصوتي
-  speech_to_text: ^6.5.1
-
   # صلاحيات الكاميرا والملفات وغيرها
   permission_handler: ^11.3.0
 
