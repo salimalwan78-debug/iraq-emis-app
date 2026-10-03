@@ -382,7 +382,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
   /// listing/filtering. EMIS updatestudent expects the complete student DTO
   /// returned by getstudent/{id}. Sending the lightweight list record causes
   /// HTTP 400. Always refresh the complete record immediately before saving.
-  Future<Map<String, dynamic>?> _fetchFullStudent(String id) async {
+  Future<Map<String, dynamic>> _fetchFullStudent(String id) async {
     final response = await http.get(
       Uri.parse('https://emis.moedu.gov.iq/api/student/getstudent/$id'),
       headers: {
