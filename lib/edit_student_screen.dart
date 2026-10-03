@@ -30,6 +30,39 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
+  // Arabic display names for coded EMIS values. The raw coded values are
+  // deliberately kept inside _studentData so saving still sends the exact
+  // values returned by EMIS.
+  final Map<String, String> _displayValues = {};
+  final Map<String, Map<String, String>> _referenceMaps = {};
+
+  static const Map<String, List<String>> _referenceEndpointCandidates = {
+    'gender': [
+      '/selectoption/getgenders',
+      '/selectoption/getGenders',
+      '/selectoption/getgender',
+      '/selectoption/getGender',
+    ],
+    'religion': [
+      '/selectoption/getreligions',
+      '/selectoption/getReligions',
+      '/selectoption/getreligion',
+      '/selectoption/getReligion',
+    ],
+    'nationality': [
+      '/selectoption/getnationalities',
+      '/selectoption/getNationalities',
+      '/selectoption/getnationality',
+      '/selectoption/getNationality',
+    ],
+    'bloodGroup': [
+      '/selectoption/getbloodgroups',
+      '/selectoption/getBloodGroups',
+      '/selectoption/getbloodgroup',
+      '/selectoption/getBloodGroup',
+    ],
+  };
+
   final Map<String, String> _officialArabicNames = {
     'name': 'الإسم',
     'fatherName': 'إسم الأب',
@@ -75,10 +108,20 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
 
       if (response.statusCode == 200) {
         if (!mounted) return;
+        final decoded = jsonDecode(
+          utf8.decode(response.bodyBytes),
+        );
+
+        if (decoded is! Map) {
+          throw Exception('استجابة بيانات الطالب غير صالحة');
+        }
+
+        final student = Map<String, dynamic>.from(decoded);
+        await _loadReferenceLabels(student);
+
+        if (!mounted) return;
         setState(() {
-          _studentData = jsonDecode(
-            utf8.decode(response.bodyBytes),
-          ) as Map<String, dynamic>;
+          _studentData = student;
           _isLoading = false;
         });
       } else if (mounted) {
@@ -88,6 +131,188 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       debugPrint('خطأ في جلب بيانات الطالب: $e');
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // ============================================================
+  // EMIS CODE -> ARABIC DISPLAY NAME
+  // ============================================================
+
+  Future<void> _loadReferenceLabels(Map<String, dynamic> student) async {
+    final keys = _referenceEndpointCandidates.keys
+        .where((key) => student.containsKey(key) && student[key] != null)
+        .toList();
+
+    for (final key in keys) {
+      final map = await _fetchReferenceMap(key);
+      if (map.isNotEmpty) {
+        _referenceMaps[key] = map;
+        final raw = student[key];
+        final display = _lookupDisplayName(map, raw);
+        if (display != null && display.isNotEmpty) {
+          _displayValues[key] = display;
+        }
+      }
+    }
+
+    // Some EMIS responses return the option itself rather than just its code.
+    // Handle {value, displayName/name/label} without changing the raw object.
+    _collectInlineDisplayValues(student);
+  }
+
+  Future<Map<String, String>> _fetchReferenceMap(String field) async {
+    final cached = _referenceMaps[field];
+    if (cached != null && cached.isNotEmpty) return cached;
+
+    final endpoints = _referenceEndpointCandidates[field] ?? const <String>[];
+    for (final endpoint in endpoints) {
+      try {
+        final response = await http.get(
+          Uri.parse('https://emis.moedu.gov.iq/api$endpoint'),
+          headers: {
+            'Authorization': widget.token,
+            'Accept': 'application/json',
+          },
+        );
+
+        if (response.statusCode != 200) continue;
+
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+        final items = _extractOptionList(decoded);
+        final map = <String, String>{};
+
+        for (final item in items) {
+          final code = _firstNonNull(item, const [
+            'value',
+            'id',
+            'code',
+            'key',
+          ]);
+          final name = _firstNonNull(item, const [
+            'displayName',
+            'name',
+            'label',
+            'text',
+            'title',
+          ]);
+
+          if (code != null && name != null) {
+            map[_normaliseCode(code)] = name.toString().trim();
+          }
+        }
+
+        if (map.isNotEmpty) return map;
+      } catch (e) {
+        debugPrint('تعذر قراءة قائمة $field من $endpoint: $e');
+      }
+    }
+
+    return {};
+  }
+
+  List<Map<String, dynamic>> _extractOptionList(dynamic decoded) {
+    dynamic value = decoded;
+
+    if (value is Map) {
+      for (final key in const ['data', 'items', 'results', 'options', 'list']) {
+        final candidate = value[key];
+        if (candidate is List) {
+          value = candidate;
+          break;
+        }
+      }
+    }
+
+    if (value is! List) return [];
+
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  dynamic _firstNonNull(Map item, List<String> keys) {
+    for (final key in keys) {
+      final value = item[key];
+      if (value != null && value.toString().trim().isNotEmpty) return value;
+    }
+    return null;
+  }
+
+  String _normaliseCode(dynamic value) {
+    if (value == null) return '';
+    final text = value.toString().trim();
+    final number = num.tryParse(text);
+    if (number != null) {
+      if (number == number.toInt()) return number.toInt().toString();
+      return number.toString();
+    }
+    return text.toLowerCase();
+  }
+
+  String? _lookupDisplayName(Map<String, String> map, dynamic rawValue) {
+    if (rawValue == null) return null;
+
+    if (rawValue is Map) {
+      final inline = _firstNonNull(rawValue, const [
+        'displayName',
+        'name',
+        'label',
+        'text',
+        'title',
+      ]);
+      if (inline != null) return inline.toString().trim();
+      rawValue = _firstNonNull(rawValue, const ['value', 'id', 'code']);
+    }
+
+    final key = _normaliseCode(rawValue);
+    return map[key];
+  }
+
+  void _collectInlineDisplayValues(
+    Map<String, dynamic> map, [String prefix = ''],
+  ) {
+    map.forEach((key, value) {
+      final path = prefix.isEmpty ? key : '$prefix.$key';
+      if (value is Map) {
+        final display = _firstNonNull(value, const [
+          'displayName',
+          'name',
+          'label',
+          'text',
+          'title',
+        ]);
+        if (display != null) {
+          _displayValues[path] = display.toString().trim();
+        }
+        _collectInlineDisplayValues(
+          Map<String, dynamic>.from(value),
+          path,
+        );
+      }
+    });
+  }
+
+  String _displayValueFor(String key, dynamic value) {
+    final inline = _displayValues[key];
+    if (inline != null && inline.isNotEmpty) return inline;
+
+    final map = _referenceMaps[key];
+    final resolved = map == null ? null : _lookupDisplayName(map, value);
+    if (resolved != null && resolved.isNotEmpty) return resolved;
+
+    // If EMIS supplied an option object, prefer its Arabic display value.
+    if (value is Map) {
+      final display = _firstNonNull(value, const [
+        'displayName',
+        'name',
+        'label',
+        'text',
+        'title',
+      ]);
+      if (display != null) return display.toString().trim();
+    }
+
+    return value?.toString() ?? '';
   }
 
   // ============================================================
@@ -608,11 +833,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   List<Widget> _buildDynamicFields(
     Map<String, dynamic> dataMap,
     bool isDark,
-    Color textColor,
-  ) {
+    Color textColor, {
+    String prefix = '',
+  }) {
     final List<Widget> widgets = [];
 
     dataMap.forEach((key, value) {
+      final path = prefix.isEmpty ? key : '$prefix.$key';
       if (key == 'imageUrl' ||
           key == 'id' ||
           key == 'createdAt' ||
@@ -646,7 +873,12 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     ),
                   ),
                   const SizedBox(height: 15),
-                  ..._buildDynamicFields(value, isDark, textColor),
+                  ..._buildDynamicFields(
+                    value,
+                    isDark,
+                    textColor,
+                    prefix: path,
+                  ),
                 ],
               ),
             ),
@@ -658,10 +890,19 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         widgets.add(
           PlainTextField(
             label: arabicLabel,
-            initialValue: value,
+            initialValue: _displayValueFor(key, value),
             isDark: isDark,
             textColor: textColor,
-            onChanged: (v) => dataMap[key] = v,
+            readOnly: _referenceEndpointCandidates.containsKey(key) &&
+                _displayValueFor(key, value) != value?.toString(),
+            onChanged: (v) {
+              // Coded EMIS fields must keep their original numeric/code value
+              // for the API. Their Arabic name is display-only.
+              if (!(_referenceEndpointCandidates.containsKey(key) &&
+                  _displayValueFor(key, value) != value?.toString())) {
+                dataMap[key] = v;
+              }
+            },
           ),
         );
       }
@@ -884,6 +1125,7 @@ class PlainTextField extends StatefulWidget {
   final bool isDark;
   final Color textColor;
   final Function(String) onChanged;
+  final bool readOnly;
 
   const PlainTextField({
     super.key,
@@ -892,6 +1134,7 @@ class PlainTextField extends StatefulWidget {
     required this.isDark,
     required this.textColor,
     required this.onChanged,
+    this.readOnly = false,
   });
 
   @override
@@ -921,6 +1164,7 @@ class _PlainTextFieldState extends State<PlainTextField> {
       padding: const EdgeInsets.only(bottom: 15),
       child: TextFormField(
         controller: _controller,
+        readOnly: widget.readOnly,
         onChanged: widget.onChanged,
         style: TextStyle(
           color: widget.textColor,
