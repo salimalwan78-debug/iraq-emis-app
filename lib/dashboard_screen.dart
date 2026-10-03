@@ -109,7 +109,7 @@ class DashboardScreen extends StatelessWidget {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => SmartToolsScreen(token: token, schoolId: schoolId, allStudents: allStudents)));
                     }),
                     _buildMenuCard(title: 'إدارة المعلمين', icon: Icons.work_rounded, color: Colors.deepPurple, cardColor: cardColor, textColor: textColor, onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const TeachersListScreen()));
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => TeachersListScreen(token: token, schoolId: schoolId, initialTeachers: allTeachers)));
                     }),
                     _buildMenuCard(title: 'الدرجات', icon: Icons.bar_chart_rounded, color: Colors.orange, cardColor: cardColor, textColor: textColor, onTap: () {}),
                     _buildMenuCard(title: 'إرسال البيانات', icon: Icons.cloud_upload_rounded, color: Colors.green, cardColor: cardColor, textColor: textColor, onTap: () {}),
