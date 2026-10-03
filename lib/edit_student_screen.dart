@@ -48,6 +48,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     'religion': '/selectoption/الديانة',
     'specialNeeds': '/selectoption/ذوي الإحتياجات الخاصة',
     'economicLevel': '/selectoption/حالة الاقتصادية',
+    'academicYearId': '/selectoption/getActiveAcademicYear',
   };
 
   final Map<String, String> _officialArabicNames = {
@@ -223,13 +224,32 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }.contains(key);
 
   bool _isRequired(String key, [Map<String, dynamic>? parent]) {
-    // Required rules are applied to fields that EMIS treats as core student
-    // identity/academic fields. Conditional identity fields are handled below.
-    const core = <String>{'name','fatherName','grandFatherName','motherName','dateOfBirth','gender','nationality','stageId','classRoomId'};
+    // Required markers mirror the fields currently treated as mandatory by
+    // the EMIS student form.  The complete API object is still retained;
+    // this only controls the UI/validation projection.
+    const core = <String>{
+      'name',
+      'fatherName',
+      'grandFatherName',
+      'motherName',
+      'dateOfBirth',
+      'gender',
+      'nationality',
+      'countryOfBirth',
+      'motherTongue',
+      'maritalStatus',
+      'bloodGroup',
+      'religion',
+      'stageId',
+      'classRoomId',
+    };
     if (core.contains(key)) return true;
+
     final idType = parent?['idType'] ?? _studentData?['identification']?['idType'];
+    if (key == 'idType') return true;
     if (key == 'idNumber' && (idType == 12 || idType == 3)) return true;
     if (key == 'jinsiyaIdNumber' && idType == 3) return true;
+    if (key == 'issuingCountry' && (idType == 3 || idType == 12 || idType == 22)) return true;
     return false;
   }
 
@@ -308,8 +328,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 
   Widget _fieldFor(String key, dynamic value, Map<String, dynamic> owner, bool isDark, Color textColor) {
-    if (key == 'id' || key == 'createdAt' || key == 'updatedAt' || key.endsWith('Name')) return const SizedBox.shrink();
-    if (key == 'schoolId' || key == 'academicYearId') return const SizedBox.shrink();
+    // IMPORTANT: never use key.endsWith('Name') here.  Names such as
+    // fatherName/motherName are real EMIS form fields.  Visibility is
+    // controlled explicitly by the EMIS UI projection below.
+    if (_hiddenStudentResponseFields.contains(key) ||
+        _hiddenAddressResponseFields.contains(key)) {
+      return const SizedBox.shrink();
+    }
 
     if (_optionEndpoints.containsKey(key) || key == 'stageId' || key == 'classRoomId' || key == 'countryStructureId') {
       return _dropdownField(key: key, owner: owner, isDark: isDark, textColor: textColor);
@@ -369,17 +394,114 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     );
   }
 
+  // ------------------------------------------------------------------------
+  // EMIS UI projection
+  // ------------------------------------------------------------------------
+  // These sets do NOT delete anything from _studentData.  They only decide
+  // which parts of the complete getstudent response are rendered as editable
+  // controls.  This keeps the data model future-proof while preventing
+  // calculated/history/system fields from leaking into the form.
+  static const Set<String> _visibleStudentFields = {
+    'name',
+    'fatherName',
+    'grandFatherName',
+    'fathersGrandFatherName',
+    'surName',
+    'motherName',
+    'mothersFatherName',
+    'mothersGrandFatherName',
+    'dateOfBirth',
+    'gender',
+    'nationality',
+    'countryOfBirth',
+    'homeTown',
+    'motherTongue',
+    'maritalStatus',
+    'bloodGroup',
+    'religion',
+    'homePhoneNumber',
+    'notes',
+    'specialNeeds',
+    'studyLanguage',
+    'economicLevel',
+    'isCoveredBySocialWelfare',
+    'isDroppedOutFromSchool',
+    'academicYearId',
+    'stageId',
+    'classRoomId',
+    'identification',
+    'address',
+    'ageExceptionReason',
+    'genderExceptionReason',
+  };
+
+  static const Set<String> _visibleAddressFields = {
+    'countryStructureId',
+    'town',
+    'area',
+    'quarter',
+    'street',
+    'address1',
+    'address2',
+    'closestLocation',
+  };
+
+  static const Set<String> _hiddenStudentResponseFields = {
+    'id',
+    'createdAt',
+    'updatedAt',
+    'imageUrl',
+    'schoolId',
+    'schoolName',
+    'schoolCensusNumber',
+    'stageName',
+    'classRoomName',
+    'academicYearName',
+    'studentStatusName',
+    'studentStatus',
+    'classificationName',
+    'classification',
+    'classifications',
+    'lastSchoolClassifications',
+    'lastSchoolClassification',
+    'lastSchoolName',
+    'lastCompletedStageName',
+    'lastAcademicYearName',
+    'lastYearResult',
+    'lastAcademicYearId',
+    'lastCompletedStageId',
+    'lastSchoolId',
+    'censusNumber',
+  };
+
+  static const Set<String> _hiddenAddressResponseFields = {
+    'apartmentNumber',
+    'buildingNumber',
+    'latitude',
+    'longitude',
+    'schoolPhoneNumber',
+    'mobilePhoneNumber',
+    'employeePhoneNumber',
+    'email',
+    'website',
+  };
+
   List<Widget> _buildDynamicFields(Map<String, dynamic> dataMap, bool isDark, Color textColor, {String prefix = ''}) {
     final widgets = <Widget>[];
+
     dataMap.forEach((key, value) {
-      // EMIS returns several calculated/display-only properties. They should
-      // never be edited or sent back as user-entered fields.
-      if ({'id','createdAt','updatedAt','imageUrl','schoolId','academicYearId','schoolName','stageName','classRoomName','academicYearName','studentStatusName','classificationName','lastSchoolName','lastCompletedStageName','lastAcademicYearName'}.contains(key)) return;
+      // Top-level projection: preserve every response field in memory, but
+      // render only fields that belong to the current EMIS edit form.
+      if (prefix.isEmpty && !_visibleStudentFields.contains(key)) return;
+
+      // Nested address projection: EMIS currently does not render the system
+      // metadata fields shown in the raw API response (coordinates, school
+      // phone/email/website, apartment/building metadata, ...).
+      if (prefix == 'address.' && !_visibleAddressFields.contains(key)) return;
+      if (_hiddenStudentResponseFields.contains(key) ||
+          _hiddenAddressResponseFields.contains(key)) return;
 
       if (value is Map) {
-        // Conditional identity fields: EMIS changes the visible fields based
-        // on identification type. Render the selected type first, then only
-        // the applicable identity fields.
         if (key == 'identification') {
           final m = value is Map<String, dynamic>
               ? value
@@ -387,28 +509,56 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
           widgets.add(Card(
             color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
             margin: const EdgeInsets.only(bottom: 15, top: 10),
-            child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('وثيقة التعريف', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
-              const SizedBox(height: 12),
-              if (m.containsKey('idType')) _dropdownField(key: 'idType', owner: m, isDark: isDark, textColor: textColor),
-              ...m.entries.where((e) => e.key != 'idType' && _identityFieldVisible(e.key, m['idType'])).map((e) => _fieldFor(e.key, e.value, m, isDark, textColor)),
-            ])),
+            child: Padding(
+              padding: const EdgeInsets.all(15),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'وثيقة التعريف',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.indigo.shade400),
+                  ),
+                  const SizedBox(height: 12),
+                  if (m.containsKey('idType'))
+                    _dropdownField(key: 'idType', owner: m, isDark: isDark, textColor: textColor),
+                  ...m.entries
+                      .where((e) => e.key != 'idType' && _identityFieldVisible(e.key, m['idType']))
+                      .map((e) => _fieldFor(e.key, e.value, m, isDark, textColor)),
+                ],
+              ),
+            ),
           ));
           return;
         }
+
         widgets.add(Card(
           color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
           margin: const EdgeInsets.only(bottom: 15, top: 10),
-          child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(_label(key), style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade400)),
-            const SizedBox(height: 12),
-            ..._buildDynamicFields(Map<String,dynamic>.from(value), isDark, textColor, prefix: '$prefix$key.'),
-          ])),
+          child: Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _label(key),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo.shade400),
+                ),
+                const SizedBox(height: 12),
+                ..._buildDynamicFields(
+                  Map<String, dynamic>.from(value),
+                  isDark,
+                  textColor,
+                  prefix: '$prefix$key.',
+                ),
+              ],
+            ),
+          ),
         ));
       } else {
         widgets.add(_fieldFor(key, value, dataMap, isDark, textColor));
       }
     });
+
     return widgets;
   }
 
