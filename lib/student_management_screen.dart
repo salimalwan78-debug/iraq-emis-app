@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'select_student_screen.dart';
 import 'app_core.dart';
+import 'smart_tools_screen.dart';
 
 class StudentManagementScreen extends StatelessWidget {
   final String token;
@@ -24,6 +25,10 @@ class StudentManagementScreen extends StatelessWidget {
               children: [
                 _buildCard(context, 'تعديل بيانات الطلاب', 'تعديل الصف، الشعبة، السكن، والصورة', Icons.edit_document, Colors.indigo, isDark, () {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => SelectStudentScreen(token: token, schoolId: schoolId, preLoadedStudents: allStudents)));
+                }),
+                const SizedBox(height: 15),
+                _buildCard(context, 'الأدوات الذكية', 'حذف AA وإضافة صور الطلاب جماعيًا', Icons.auto_awesome, Colors.teal, isDark, () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => SmartToolsScreen(token: token, schoolId: schoolId, allStudents: allStudents)));
                 }),
                 const SizedBox(height: 15),
                 _buildCard(context, 'إضافة طالب جديد', 'إضافة سجل طالب جديد كلياً للمدرسة', Icons.person_add, Colors.green, isDark, () {}),

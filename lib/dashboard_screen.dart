@@ -3,6 +3,7 @@ import 'student_management_screen.dart';
 import 'teachers_list_screen.dart';
 import 'settings_screen.dart';
 import 'app_core.dart';
+import 'smart_tools_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   final String token;
@@ -103,6 +104,9 @@ class DashboardScreen extends StatelessWidget {
                   children: [
                     _buildMenuCard(title: 'إدارة الطلاب', icon: Icons.people_alt_rounded, color: Colors.blueAccent, cardColor: cardColor, textColor: textColor, onTap: () {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => StudentManagementScreen(token: token, schoolId: schoolId, allStudents: allStudents)));
+                    }),
+                    _buildMenuCard(title: 'الأدوات الذكية', icon: Icons.auto_awesome, color: Colors.teal, cardColor: cardColor, textColor: textColor, onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => SmartToolsScreen(token: token, schoolId: schoolId, allStudents: allStudents)));
                     }),
                     _buildMenuCard(title: 'إدارة المعلمين', icon: Icons.work_rounded, color: Colors.deepPurple, cardColor: cardColor, textColor: textColor, onTap: () {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => const TeachersListScreen()));
