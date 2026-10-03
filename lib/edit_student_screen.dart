@@ -1,14 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
-import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
-import 'package:onnxruntime/onnxruntime.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:google_mlkit_selfie_segmentation/google_mlkit_selfie_segmentation.dart';
 
 import 'app_core.dart';
 
@@ -94,90 +91,37 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   }
 
   // ============================================================
-  // LOCAL BACKGROUND REMOVAL - BiRefNet Lite 512 ONNX
+  // LOCAL BACKGROUND REMOVAL - Google ML Kit Selfie Segmentation
   // ============================================================
   //
-  // The model is bundled locally with the application:
-  //   assets/models/birefnet_lite_512.onnx
+  // The segmentation is performed locally on the phone.
+  // No image is uploaded to a background-removal website or API.
   //
-  // Input:
-  //   RGB, 512x512, NCHW
-  //   ImageNet normalization
-  //
-  // Output:
-  //   Single-channel logits, 512x512.
-  //   Sigmoid is applied here and the result becomes the alpha mask.
-  //
-  // This implementation does NOT contact remove.bg or any other
-  // background-removal service.
+  // We intentionally reduce the working image to a maximum of 512 px
+  // because this application only needs a student ID/avatar image.
+  // This keeps processing fast and the resulting file small.
 
-  static const String _birefNetModelAsset =
-      'assets/models/birefnet_lite_512.onnx';
+  SelfieSegmenter? _selfieSegmenter;
 
-  OrtSession? _birefNetSession;
-  OrtSessionOptions? _birefNetSessionOptions;
-
-  Future<void> _initializeBiRefNet() async {
-    if (_birefNetSession != null) return;
-
-    OrtEnv.instance.init();
-
-    _birefNetSessionOptions = OrtSessionOptions();
-
-    final modelData = await rootBundle.load(_birefNetModelAsset);
-    final modelBytes = modelData.buffer.asUint8List(
-      modelData.offsetInBytes,
-      modelData.lengthInBytes,
-    );
-
-    _birefNetSession = OrtSession.fromBuffer(
-      modelBytes,
-      _birefNetSessionOptions!,
-    );
-
-    debugPrint(
-      'BiRefNet Lite loaded. '
-      'inputs=${_birefNetSession!.inputNames} '
-      'outputs=${_birefNetSession!.outputNames}',
+  Future<void> _initializeSelfieSegmenter() async {
+    _selfieSegmenter ??= SelfieSegmenter(
+      mode: SegmenterMode.single,
+      enableRawSizeMask: false,
     );
   }
 
-  List<double> _flattenOrtValue(dynamic value) {
-    final result = <double>[];
-
-    void walk(dynamic item) {
-      if (item is List) {
-        for (final child in item) {
-          walk(child);
-        }
-      } else if (item is num) {
-        result.add(item.toDouble());
-      }
-    }
-
-    walk(value);
-    return result;
-  }
-
-  double _sigmoid(double value) {
-    if (value >= 0) {
-      final z = math.exp(-value);
-      return 1.0 / (1.0 + z);
-    }
-
-    final z = math.exp(value);
-    return z / (1.0 + z);
-  }
-
-  Future<File?> _removeBackgroundUsingBiRefNet(File imageFile) async {
+  Future<File?> _removeBackgroundUsingSelfieSegmentation(
+    File imageFile,
+  ) async {
     final stopwatch = Stopwatch()..start();
+    File? normalizedFile;
 
     try {
-      await _initializeBiRefNet();
+      await _initializeSelfieSegmenter();
 
-      final session = _birefNetSession;
-      if (session == null) {
-        throw Exception('تعذر تهيئة نموذج BiRefNet Lite 512');
+      final segmenter = _selfieSegmenter;
+      if (segmenter == null) {
+        throw Exception('تعذر تهيئة أداة إزالة الخلفية');
       }
 
       final sourceBytes = await imageFile.readAsBytes();
@@ -187,181 +131,134 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         throw Exception('تعذر قراءة الصورة');
       }
 
-      // Respect the original camera/gallery orientation before inference.
+      // Apply EXIF orientation before sending the image to ML Kit so that
+      // the image and segmentation mask always have the same orientation.
       sourceImage = img.bakeOrientation(sourceImage);
 
-      final originalWidth = sourceImage.width;
-      final originalHeight = sourceImage.height;
-
-      if (originalWidth <= 0 || originalHeight <= 0) {
-        throw Exception('أبعاد الصورة غير صحيحة');
-      }
-
-      // BiRefNet Lite 512 expects a square 512x512 RGB input.
-      final resized = img.copyResize(
-        sourceImage,
-        width: 512,
-        height: 512,
-        interpolation: img.Interpolation.linear,
-      );
-
-      const mean = <double>[0.485, 0.456, 0.406];
-      const std = <double>[0.229, 0.224, 0.225];
-
-      // NCHW: [1, 3, 512, 512].
-      final inputData = Float32List(1 * 3 * 512 * 512);
-      final planeSize = 512 * 512;
-
-      for (var y = 0; y < 512; y++) {
-        for (var x = 0; x < 512; x++) {
-          final pixel = resized.getPixel(x, y);
-
-          final r = pixel.r.toDouble() / 255.0;
-          final g = pixel.g.toDouble() / 255.0;
-          final b = pixel.b.toDouble() / 255.0;
-
-          final offset = y * 512 + x;
-
-          inputData[offset] = (r - mean[0]) / std[0];
-          inputData[planeSize + offset] = (g - mean[1]) / std[1];
-          inputData[(2 * planeSize) + offset] =
-              (b - mean[2]) / std[2];
-        }
-      }
-
-      final inputTensor = OrtValueTensor.createTensorWithDataList(
-        inputData,
-        const [1, 3, 512, 512],
-      );
-
-      final runOptions = OrtRunOptions();
-
-      try {
-        final inputName = session.inputNames.contains('input_image')
-            ? 'input_image'
-            : session.inputNames.first;
-
-        final outputName = session.outputNames.contains('logits')
-            ? 'logits'
-            : session.outputNames.first;
-
-        debugPrint(
-          'BiRefNet inference: input=$inputName output=$outputName',
-        );
-
-        final outputs = await session.runAsync(
-          runOptions,
-          {inputName: inputTensor},
-          [outputName],
-        );
-
-        if (outputs == null || outputs.isEmpty || outputs.first == null) {
-          throw Exception('لم يرجع نموذج BiRefNet أي نتيجة');
-        }
-
-        final output = outputs.first!;
-
-        final logits = _flattenOrtValue(output.value);
-
-        if (logits.length < 512 * 512) {
-          throw Exception(
-            'حجم خرج BiRefNet غير متوقع: ${logits.length}',
-          );
-        }
-
-        // Convert logits -> alpha mask.
-        final mask512 = img.Image(
-          width: 512,
-          height: 512,
-          numChannels: 1,
-        );
-
-        for (var y = 0; y < 512; y++) {
-          for (var x = 0; x < 512; x++) {
-            final index = y * 512 + x;
-            final alpha = (_sigmoid(logits[index]) * 255.0)
-                .round()
-                .clamp(0, 255);
-
-            mask512.setPixelRgba(
-              x,
-              y,
-              alpha,
-              alpha,
-              alpha,
-              255,
-            );
-          }
-        }
-
-        // Restore the mask to the original photo dimensions using
-        // bilinear interpolation, as recommended for this model.
-        final fullMask = img.copyResize(
-          mask512,
-          width: originalWidth,
-          height: originalHeight,
+      // Keep the processing image small. The longest side will be <= 512 px.
+      const maxDimension = 512;
+      if (sourceImage.width > maxDimension ||
+          sourceImage.height > maxDimension) {
+        sourceImage = img.copyResize(
+          sourceImage,
+          width: sourceImage.width >= sourceImage.height
+              ? maxDimension
+              : null,
+          height: sourceImage.height > sourceImage.width
+              ? maxDimension
+              : null,
           interpolation: img.Interpolation.linear,
         );
-
-        // Preserve the original RGB pixels and replace only alpha.
-        final result = img.Image(
-          width: originalWidth,
-          height: originalHeight,
-          numChannels: 4,
-        );
-
-        for (var y = 0; y < originalHeight; y++) {
-          for (var x = 0; x < originalWidth; x++) {
-            final sourcePixel = sourceImage.getPixel(x, y);
-            final maskPixel = fullMask.getPixel(x, y);
-
-            result.setPixelRgba(
-              x,
-              y,
-              sourcePixel.r,
-              sourcePixel.g,
-              sourcePixel.b,
-              maskPixel.r,
-            );
-          }
-        }
-
-        final outputPath =
-            '${imageFile.path}_birefnet_${DateTime.now().millisecondsSinceEpoch}.png';
-
-        final outputFile = File(outputPath);
-        await outputFile.writeAsBytes(
-          img.encodePng(result, level: 6),
-          flush: true,
-        );
-
-        debugPrint(
-          'BiRefNet Lite completed in '
-          '${stopwatch.elapsedMilliseconds} ms: $outputPath',
-        );
-
-        return outputFile;
-      } finally {
-        inputTensor.release();
-        runOptions.release();
       }
+
+      // Convert to a simple JPEG for ML Kit input. This avoids depending on
+      // EXIF metadata after the orientation has already been baked in.
+      normalizedFile = File(
+        '${imageFile.path}_segmentation_input_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      await normalizedFile.writeAsBytes(
+        img.encodeJpg(sourceImage, quality: 90),
+        flush: true,
+      );
+
+      final inputImage = InputImage.fromFilePath(normalizedFile.path);
+      final mask = await segmenter.processImage(inputImage);
+
+      if (mask == null) {
+        throw Exception('لم يتم الحصول على قناع الشخص من ML Kit');
+      }
+
+      if (mask.width <= 0 || mask.height <= 0 || mask.confidences.isEmpty) {
+        throw Exception('قناع إزالة الخلفية غير صالح');
+      }
+
+      if (mask.width != sourceImage.width ||
+          mask.height != sourceImage.height) {
+        throw Exception(
+          'أبعاد قناع إزالة الخلفية لا تطابق الصورة: '
+          '${mask.width}x${mask.height} مقابل '
+          '${sourceImage.width}x${sourceImage.height}',
+        );
+      }
+
+      // ML Kit returns a foreground confidence in the range 0..1 for each
+      // pixel. Keep a small soft edge rather than using a hard binary cut.
+      final result = img.Image(
+        width: sourceImage.width,
+        height: sourceImage.height,
+        numChannels: 4,
+      );
+
+      final pixelCount = sourceImage.width * sourceImage.height;
+      if (mask.confidences.length < pixelCount) {
+        throw Exception(
+          'عدد قيم القناع غير كافٍ: ${mask.confidences.length}',
+        );
+      }
+
+      for (var y = 0; y < sourceImage.height; y++) {
+        for (var x = 0; x < sourceImage.width; x++) {
+          final index = y * sourceImage.width + x;
+          final confidence = mask.confidences[index].clamp(0.0, 1.0);
+
+          // Remove low-confidence background while keeping a smooth edge.
+          // 0.35 -> transparent, 0.75 -> fully opaque.
+          final alpha = ((confidence - 0.35) / 0.40 * 255.0)
+              .round()
+              .clamp(0, 255);
+
+          final sourcePixel = sourceImage.getPixel(x, y);
+          result.setPixelRgba(
+            x,
+            y,
+            sourcePixel.r,
+            sourcePixel.g,
+            sourcePixel.b,
+            alpha,
+          );
+        }
+      }
+
+      final outputPath =
+          '${imageFile.path}_nobg_${DateTime.now().millisecondsSinceEpoch}.png';
+      final outputFile = File(outputPath);
+
+      await outputFile.writeAsBytes(
+        img.encodePng(result, level: 6),
+        flush: true,
+      );
+
+      debugPrint(
+        'ML Kit background removal completed in '
+        '${stopwatch.elapsedMilliseconds} ms: $outputPath',
+      );
+
+      return outputFile;
     } catch (e, stackTrace) {
-      debugPrint('BiRefNet Lite error: $e');
+      debugPrint('ML Kit background removal error: $e');
       debugPrint('$stackTrace');
       rethrow;
     } finally {
+      if (normalizedFile != null) {
+        try {
+          if (await normalizedFile.exists()) {
+            await normalizedFile.delete();
+          }
+        } catch (e) {
+          debugPrint('تعذر حذف ملف المعالجة المؤقت: $e');
+        }
+      }
       stopwatch.stop();
     }
   }
 
   @override
   void dispose() {
-    _birefNetSession?.release();
-    _birefNetSession = null;
-
-    _birefNetSessionOptions?.release();
-    _birefNetSessionOptions = null;
-
+    final segmenter = _selfieSegmenter;
+    _selfieSegmenter = null;
+    if (segmenter != null) {
+      segmenter.close();
+    }
     super.dispose();
   }
 
@@ -436,7 +333,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                           CircularProgressIndicator(),
                           SizedBox(height: 12),
                           Text(
-                            'جاري معالجة الصورة وإزالة الخلفية محليًا...',
+                            'جاري إزالة الخلفية محليًا...',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: Colors.blue,
@@ -458,7 +355,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                             setDialogState(() => isProcessing = true);
                             try {
                               final processed =
-                                  await _removeBackgroundUsingBiRefNet(
+                                  await _removeBackgroundUsingSelfieSegmentation(
                                 currentImage,
                               );
 
@@ -482,7 +379,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                 ),
                               );
                             } catch (e) {
-                              debugPrint('BiRefNet Lite error: $e');
+                              debugPrint('ML Kit background removal error: $e');
                               if (!mounted) return;
 
                               setDialogState(() => isProcessing = false);
@@ -602,7 +499,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       await http.MultipartFile.fromPath(
         'image',
         imageFile.path,
-        filename: 'avatar.jpg',
+        filename: 'avatar.png',
       ),
     );
 
