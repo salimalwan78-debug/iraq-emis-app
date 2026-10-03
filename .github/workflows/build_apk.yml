@@ -30,11 +30,11 @@ jobs:
       # لا نعيد إنشاء ملفات Android الموجودة في المشروع.
       # المشروع يحتوي أصلًا على إعدادات Android الخاصة به،
       # ومنها minSdk = 21 المطلوب لـ ML Kit.
-      
+
       - name: Verify Android minSdk
         run: |
           echo "Checking Android configuration..."
-          grep -Rni "minSdk" android/app || true
+          grep -Rni "minSdk" android || true
 
       # إضافة صلاحية الإنترنت إذا لم تكن موجودة
       - name: Add Internet Permission
@@ -46,6 +46,50 @@ jobs:
       - name: Upgrade Gradle Version
         run: |
           sed -i 's|distributionUrl=.*|distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip|g' android/gradle/wrapper/gradle-wrapper.properties
+
+      # تشخيص سبب تعرف Flutter على المشروع كـ Android Embedding V1
+      - name: Diagnose Flutter Android Embedding
+        run: |
+          echo "========================================"
+          echo "          FLUTTER VERSION"
+          echo "========================================"
+          flutter --version
+
+          echo ""
+          echo "========================================"
+          echo "          ANDROID FILES"
+          echo "========================================"
+          find android -maxdepth 5 -type f | sort
+
+          echo ""
+          echo "========================================"
+          echo "     LEGACY EMBEDDING REFERENCES"
+          echo "========================================"
+          grep -RniE "io\.flutter\.app|FlutterApplication|FlutterActivity|flutterEmbedding|registerWith|GeneratedPluginRegistrant" android || true
+
+          echo ""
+          echo "========================================"
+          echo "          ANDROID MANIFEST"
+          echo "========================================"
+          cat android/app/src/main/AndroidManifest.xml
+
+          echo ""
+          echo "========================================"
+          echo "          MAIN ACTIVITY"
+          echo "========================================"
+          find android/app/src/main -type f \( -name "MainActivity.kt" -o -name "MainActivity.java" \) -print -exec cat {} \;
+
+          echo ""
+          echo "========================================"
+          echo "       FLUTTER PROJECT METADATA"
+          echo "========================================"
+          cat .metadata || true
+
+          echo ""
+          echo "========================================"
+          echo "             PUBSPEC"
+          echo "========================================"
+          cat pubspec.yaml
 
       - name: Install dependencies
         run: flutter pub get
