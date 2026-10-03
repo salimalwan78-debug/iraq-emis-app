@@ -384,7 +384,7 @@ class _BatchTeacherPhotosScreenState extends State<BatchTeacherPhotosScreen> {
   Map<String, dynamic> _buildEmployeePayload(
     Map<String, dynamic> old,
     String imageUrl,
-  ) async {
+  ) {
     final identification = old['identification'] is Map
         ? Map<String, dynamic>.from(old['identification'])
         : <String, dynamic>{};
