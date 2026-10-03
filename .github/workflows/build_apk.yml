@@ -2,10 +2,10 @@ name: Build Flutter Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch: 
+    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,22 +18,30 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: "zulu"
+          java-version: "17"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.x'
+          flutter-version: "3.19.x"
           cache: true
 
-      - name: Create Android Platform Files
-        run: flutter create . --org com.emis.iraq --project-name iraq_emis
+      # لا نعيد إنشاء ملفات Android الموجودة في المشروع.
+      # المشروع يحتوي أصلًا على إعدادات Android الخاصة به،
+      # ومنها minSdk = 21 المطلوب لـ ML Kit.
+      
+      - name: Verify Android minSdk
+        run: |
+          echo "Checking Android configuration..."
+          grep -Rni "minSdk" android/app || true
 
-      # حقن صلاحية الإنترنت بشكل آمن ومضمون في ملف AndroidManifest
+      # إضافة صلاحية الإنترنت إذا لم تكن موجودة
       - name: Add Internet Permission
         run: |
-          sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|g' android/app/src/main/AndroidManifest.xml
+          if ! grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml; then
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|g' android/app/src/main/AndroidManifest.xml
+          fi
 
       - name: Upgrade Gradle Version
         run: |
