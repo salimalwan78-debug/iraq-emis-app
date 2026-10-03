@@ -251,6 +251,76 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
 
   Future<void> _pickFromGallery() => _pickImage(ImageSource.gallery);
 
+  Future<void> _showImagePreview() async {
+    final image = _currentImage;
+    if (image == null || !mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(10),
+          backgroundColor: Colors.black,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 6.0,
+                  boundaryMargin: const EdgeInsets.all(100),
+                  panEnabled: true,
+                  scaleEnabled: true,
+                  child: Center(
+                    child: Image.file(
+                      image,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Colors.black54,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    tooltip: 'إغلاق',
+                  ),
+                ),
+              ),
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 10,
+                child: IgnorePointer(
+                  child: Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.all(Radius.circular(20)),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        child: Text(
+                          'قرّب أو أبعد بإصبعين واسحب الصورة للتحريك',
+                          style: TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _skipCurrentStudent() {
     if (_students.isEmpty ||
         _currentIndex >= _students.length ||
@@ -573,9 +643,20 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
                                               )
                                             : ClipRRect(
                                                 borderRadius: BorderRadius.circular(18),
-                                                child: Image.file(
-                                                  _currentImage!,
-                                                  fit: BoxFit.contain,
+                                                child: GestureDetector(
+                                                  behavior: HitTestBehavior.opaque,
+                                                  onDoubleTap: _showImagePreview,
+                                                  child: InteractiveViewer(
+                                                    minScale: 1.0,
+                                                    maxScale: 4.0,
+                                                    panEnabled: true,
+                                                    scaleEnabled: true,
+                                                    boundaryMargin: const EdgeInsets.all(40),
+                                                    child: Image.file(
+                                                      _currentImage!,
+                                                      fit: BoxFit.contain,
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
                                   ),
