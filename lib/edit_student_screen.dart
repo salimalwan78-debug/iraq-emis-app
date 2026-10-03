@@ -586,11 +586,33 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
               ),
             ),
             const SizedBox(height: 13),
-            ...children,
+            ..._studentGrid(children),
           ],
         ),
       ),
     );
+  }
+
+  List<Widget> _studentGrid(List<Widget> children) {
+    final rows = <Widget>[];
+    for (var i = 0; i < children.length; i += 2) {
+      final first = children[i];
+      final second = i + 1 < children.length ? children[i + 1] : const SizedBox();
+      rows.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: first),
+            const SizedBox(width: 10),
+            Expanded(child: second),
+          ],
+        ),
+      );
+      if (i + 2 < children.length) {
+        rows.add(const SizedBox(height: 12));
+      }
+    }
+    return rows;
   }
 
   List<Widget> _buildStudentFormSections(bool isDark, Color textColor) {
