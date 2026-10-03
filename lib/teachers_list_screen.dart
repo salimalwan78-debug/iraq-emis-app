@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'edit_teacher_screen.dart';
+import 'teacher_smart_tools_screen.dart';
 
 class TeachersListScreen extends StatefulWidget {
   final String token;
@@ -149,6 +150,33 @@ class _TeachersListScreenState extends State<TeachersListScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
           children: [
             _buildSummary(card, text),
+            const SizedBox(height: 14),
+            Card(
+              color: card,
+              elevation: 1.5,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: Colors.deepPurple.withOpacity(0.10), shape: BoxShape.circle),
+                  child: const Icon(Icons.auto_awesome, color: Colors.deepPurple),
+                ),
+                title: Text('الأدوات الذكية للمعلمين', style: TextStyle(fontWeight: FontWeight.bold, color: text)),
+                subtitle: const Text('إضافة صور المعلمين جماعيًا مع حفظ سجل الجلسة'),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 17, color: Colors.deepPurple),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TeacherSmartToolsScreen(
+                      token: widget.token,
+                      schoolId: widget.schoolId,
+                      allTeachers: _teachers,
+                    ),
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: 14),
             TextField(
               textDirection: TextDirection.rtl,

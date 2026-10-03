@@ -1,4 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:google_mlkit_selfie_segmentation/google_mlkit_selfie_segmentation.dart';
+import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -25,6 +30,9 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
   bool _saving = false;
   String? _error;
   Map<String, dynamic>? _employee;
+  File? _pickedImage;
+  bool _removeExistingPhoto = false;
+  SelfieSegmenter? _selfieSegmenter;
 
   final Map<String, TextEditingController> _c = {};
   final Map<String, List<Map<String, dynamic>>> _options = {};
@@ -100,6 +108,7 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
 
   @override
   void dispose() {
+    _selfieSegmenter?.close();
     for (final controller in _c.values) {
       controller.dispose();
     }
@@ -335,6 +344,247 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
     return result;
   }
 
+  Future<void> _initializeSelfieSegmenter() async {
+    _selfieSegmenter ??= SelfieSegmenter(
+      mode: SegmenterMode.single,
+      enableRawSizeMask: false,
+    );
+  }
+
+  Future<File?> _removeBackgroundUsingSelfieSegmentation(File imageFile) async {
+    File? normalizedFile;
+    try {
+      await _initializeSelfieSegmenter();
+      final segmenter = _selfieSegmenter;
+      if (segmenter == null) throw Exception('تعذر تهيئة أداة إزالة الخلفية');
+
+      final bytes = await imageFile.readAsBytes();
+      var source = img.decodeImage(bytes);
+      if (source == null) throw Exception('تعذر قراءة الصورة');
+      source = img.bakeOrientation(source);
+
+      const maxDimension = 512;
+      if (source.width > maxDimension || source.height > maxDimension) {
+        source = img.copyResize(
+          source,
+          width: source.width >= source.height ? maxDimension : null,
+          height: source.height > source.width ? maxDimension : null,
+          interpolation: img.Interpolation.linear,
+        );
+      }
+
+      normalizedFile = File(
+        '${imageFile.path}_teacher_seg_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      await normalizedFile.writeAsBytes(
+        img.encodeJpg(source, quality: 90),
+        flush: true,
+      );
+
+      final mask = await segmenter.processImage(
+        InputImage.fromFilePath(normalizedFile.path),
+      );
+      if (mask == null || mask.width <= 0 || mask.height <= 0 || mask.confidences.isEmpty) {
+        throw Exception('لم يتم الحصول على قناع صالح للشخص');
+      }
+      if (mask.width != source.width || mask.height != source.height) {
+        throw Exception('أبعاد قناع إزالة الخلفية غير متطابقة');
+      }
+
+      final result = img.Image(
+        width: source.width,
+        height: source.height,
+        numChannels: 4,
+      );
+      final pixelCount = source.width * source.height;
+      if (mask.confidences.length < pixelCount) {
+        throw Exception('بيانات القناع غير مكتملة');
+      }
+
+      for (var y = 0; y < source.height; y++) {
+        for (var x = 0; x < source.width; x++) {
+          final index = y * source.width + x;
+          final confidence = mask.confidences[index].clamp(0.0, 1.0);
+          final alpha = ((confidence - 0.35) / 0.40 * 255.0)
+              .round()
+              .clamp(0, 255);
+          final pixel = source.getPixel(x, y);
+          result.setPixelRgba(x, y, pixel.r, pixel.g, pixel.b, alpha);
+        }
+      }
+
+      final output = File(
+        '${imageFile.path}_teacher_nobg_${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await output.writeAsBytes(img.encodePng(result, level: 6), flush: true);
+      return output;
+    } finally {
+      if (normalizedFile != null) {
+        try {
+          if (await normalizedFile.exists()) await normalizedFile.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _showImagePreviewDialog(File imageFile) async {
+    File currentImage = imageFile;
+    bool processing = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: const Text(
+                'معاينة صورة المعلم',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    height: 280,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: InteractiveViewer(
+                        panEnabled: true,
+                        scaleEnabled: true,
+                        boundaryMargin: const EdgeInsets.all(30),
+                        minScale: 0.5,
+                        maxScale: 5,
+                        child: Image.file(currentImage, fit: BoxFit.contain),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'يمكنك تقريب الصورة وتحريكها لمراجعتها قبل اعتمادها',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: processing
+                          ? null
+                          : () async {
+                              setDialogState(() => processing = true);
+                              try {
+                                final processed = await _removeBackgroundUsingSelfieSegmentation(currentImage);
+                                if (!mounted) return;
+                                if (processed == null) throw Exception('لم يتم الحصول على الصورة المعالجة');
+                                setDialogState(() {
+                                  currentImage = processed;
+                                  processing = false;
+                                });
+                              } catch (e) {
+                                if (!mounted) return;
+                                setDialogState(() => processing = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('تعذر إزالة الخلفية: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            },
+                      icon: processing
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.auto_fix_high),
+                      label: Text(processing ? 'جاري إزالة الخلفية...' : 'إزالة الخلفية'),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: processing ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: processing
+                      ? null
+                      : () {
+                          setState(() {
+                            _pickedImage = currentImage;
+                            _removeExistingPhoto = false;
+                          });
+                          Navigator.pop(dialogContext);
+                        },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  child: const Text('اعتماد', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 90,
+        maxWidth: 2500,
+        maxHeight: 2500,
+      );
+      if (picked == null || !mounted) return;
+      await _showImagePreviewDialog(File(picked.path));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر اختيار صورة المعلم: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _deleteCurrentPhoto() {
+    setState(() {
+      _pickedImage = null;
+      _removeExistingPhoto = true;
+    });
+  }
+
+  Future<String?> _uploadImageToEmisServer(File imageFile) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('https://emis.moedu.gov.iq/api/student/uploadimage'),
+    );
+    request.headers['Authorization'] = widget.token;
+    request.headers['Accept'] = 'application/json';
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'image',
+        imageFile.path,
+        filename: imageFile.path.toLowerCase().endsWith('.png') ? 'teacher.png' : 'teacher.jpg',
+      ),
+    );
+    final response = await request.send();
+    final body = await response.stream.bytesToString();
+    if (response.statusCode != 200) {
+      throw Exception('فشل رفع صورة المعلم (${response.statusCode})${body.isEmpty ? '' : ': $body'}');
+    }
+    final decoded = jsonDecode(body);
+    if (decoded is Map && decoded['imageUrl'] != null) {
+      return decoded['imageUrl'].toString();
+    }
+    throw Exception('لم يرجع خادم EMIS رابط الصورة');
+  }
+
   Future<void> _pickDate(String key) async {
     final initial = DateTime.tryParse(_c[key]!.text) ?? DateTime.now();
     final picked = await showDatePicker(
@@ -375,6 +625,17 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
       final oldAddress = old['address'] is Map ? Map<String, dynamic>.from(old['address']) : <String, dynamic>{};
       final oldEmployment = old['employmentRecord'] is Map ? Map<String, dynamic>.from(old['employmentRecord']) : <String, dynamic>{};
 
+      String imageUrl = old['imageUrl']?.toString() ?? '';
+      if (_pickedImage != null) {
+        final uploaded = await _uploadImageToEmisServer(_pickedImage!);
+        if (uploaded == null || uploaded.isEmpty) {
+          throw Exception('تعذر رفع صورة المعلم');
+        }
+        imageUrl = uploaded;
+      } else if (_removeExistingPhoto) {
+        imageUrl = '';
+      }
+
       final payload = <String, dynamic>{
         'Id': old['id'],
         'EmployeeIdNumber': _c['employeeIdNumber']!.text.trim(),
@@ -398,7 +659,7 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
         'MotherName': _c['motherName']!.text.trim(),
         'MothersFatherName': _c['mothersFatherName']!.text.trim(),
         'MothersGrandFatherName': _c['mothersGrandFatherName']!.text.trim(),
-        'ImageUrl': old['imageUrl'] ?? '',
+        'ImageUrl': imageUrl,
         'DateOfBirth': _nullable(_c['dateOfBirth']!.text),
         'Gender': _intOrNull(_c['gender']!.text),
         'Nationality': _c['nationality']!.text.trim(),
@@ -467,6 +728,9 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
       }
 
       if (!mounted) return;
+      old['imageUrl'] = imageUrl;
+      _pickedImage = null;
+      _removeExistingPhoto = false;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث المعلم بنجاح')));
       Navigator.pop(context, true);
     } catch (e) {
@@ -512,6 +776,117 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
 
   int? _intOrNull(String value) => int.tryParse(value.trim());
 
+  Widget _buildTeacherImageCard() {
+    String imageUrl = _employee?['imageUrl']?.toString() ?? '';
+    if (imageUrl.isNotEmpty && !imageUrl.startsWith('http')) {
+      imageUrl = 'https://emis.moedu.gov.iq$imageUrl';
+    }
+    final hasImage = _pickedImage != null || (!_removeExistingPhoto && imageUrl.isNotEmpty);
+
+    return Card(
+      elevation: 1.5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Text(
+              'الصورة الشخصية للمعلم',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                Container(
+                  width: 150,
+                  height: 150,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.grey.shade100,
+                    border: Border.all(color: Colors.deepPurple, width: 3),
+                  ),
+                  child: ClipOval(
+                    child: _pickedImage != null
+                        ? Image.file(_pickedImage!, fit: BoxFit.cover)
+                        : hasImage
+                            ? Image.network(
+                                imageUrl,
+                                headers: {'Authorization': widget.token},
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 80, color: Colors.grey),
+                              )
+                            : const Icon(Icons.person, size: 80, color: Colors.grey),
+                  ),
+                ),
+                Positioned(
+                  bottom: 2,
+                  right: 2,
+                  child: CircleAvatar(
+                    backgroundColor: Colors.deepPurple,
+                    child: IconButton(
+                      tooltip: 'الكاميرا',
+                      onPressed: _saving ? null : () => _pickImage(ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt, color: Colors.white, size: 19),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _saving ? null : () => _pickImage(ImageSource.gallery),
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('من الجهاز'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: hasImage && !_saving
+                        ? () {
+                            final file = _pickedImage;
+                            if (file != null) {
+                              _showImagePreviewDialog(file);
+                            } else if (imageUrl.isNotEmpty) {
+                              showDialog<void>(
+                                context: context,
+                                builder: (context) => Dialog(
+                                  backgroundColor: Colors.black,
+                                  child: InteractiveViewer(
+                                    minScale: 0.5,
+                                    maxScale: 5,
+                                    child: Image.network(
+                                      imageUrl,
+                                      headers: {'Authorization': widget.token},
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        : null,
+                    icon: const Icon(Icons.zoom_in),
+                    label: const Text('Preview'),
+                  ),
+                ),
+              ],
+            ),
+            TextButton.icon(
+              onPressed: hasImage && !_saving ? _deleteCurrentPhoto : null,
+              icon: const Icon(Icons.delete_forever, color: Colors.red),
+              label: const Text('إزالة الصورة الحالية', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -532,6 +907,8 @@ class _EditTeacherScreenState extends State<EditTeacherScreen> {
                     child: ListView(
                       padding: const EdgeInsets.all(14),
                       children: [
+                        _buildTeacherImageCard(),
+                        const SizedBox(height: 14),
                         _section('الاسم الكامل', [
                           _textField('name', required: true),
                           _textField('fatherName', required: true),

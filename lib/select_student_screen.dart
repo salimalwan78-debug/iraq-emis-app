@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'edit_student_screen.dart'; // سطر الاستيراد المهم جداً الذي كان ناقصاً
+
 import 'app_core.dart';
+import 'edit_student_screen.dart';
 
 class SelectStudentScreen extends StatefulWidget {
   final String token;
@@ -8,9 +9,9 @@ class SelectStudentScreen extends StatefulWidget {
   final List<dynamic> preLoadedStudents;
 
   const SelectStudentScreen({
-    super.key, 
-    required this.token, 
-    required this.schoolId, 
+    super.key,
+    required this.token,
+    required this.schoolId,
     required this.preLoadedStudents,
   });
 
@@ -19,189 +20,279 @@ class SelectStudentScreen extends StatefulWidget {
 }
 
 class _SelectStudentScreenState extends State<SelectStudentScreen> {
-  List<dynamic> _allStudents = []; 
-  List<dynamic> _filteredStudents = []; 
-  List<String> _stages = [];
-  List<String> _classRooms = [];
+  late List<Map<String, dynamic>> _allStudents;
+  String _query = '';
   String? _selectedStage;
   String? _selectedClassRoom;
-  String? _selectedStudentId; 
 
   @override
   void initState() {
     super.initState();
-    _allStudents = widget.preLoadedStudents;
-    _stages = _allStudents
-        .map((s) => s['studentStage']?.toString() ?? '')
+    _allStudents = widget.preLoadedStudents
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  List<String> get _stages => _allStudents
+      .map((s) => (s['studentStage'] ?? s['stageName'] ?? '').toString())
+      .where((s) => s.trim().isNotEmpty)
+      .toSet()
+      .toList();
+
+  List<String> get _classRooms {
+    if (_selectedStage == null) return <String>[];
+    return _allStudents
+        .where((s) => (s['studentStage'] ?? s['stageName'])?.toString() == _selectedStage)
+        .map((s) => (s['classRoomName'] ?? s['classRoom'])?.toString() ?? '')
         .where((s) => s.isNotEmpty)
         .toSet()
         .toList();
   }
 
-  void _onStageSelected(String? stage) {
-    setState(() {
-      _selectedStage = stage; 
-      _selectedClassRoom = null; 
-      _selectedStudentId = null;
-      _classRooms = _allStudents
-          .where((s) => s['studentStage'] == stage)
-          .map((s) => (s['classRoomName'] ?? s['classRoom'])?.toString() ?? '')
-          .where((s) => s.isNotEmpty)
-          .toSet()
-          .toList();
-      _filterStudents();
-    });
+  String _studentName(Map<String, dynamic> student) {
+    final direct = student['fullName'] ?? student['studentName'];
+    if (direct != null && direct.toString().trim().isNotEmpty) {
+      return direct.toString().trim();
+    }
+    final parts = [
+      student['name'],
+      student['fatherName'],
+      student['grandFatherName'],
+      student['surName'],
+    ]
+        .map((e) => e?.toString().trim() ?? '')
+        .where((e) => e.isNotEmpty)
+        .toList();
+    return parts.isEmpty ? 'بدون اسم' : parts.join(' ');
   }
 
-  void _onClassRoomSelected(String? classRoom) {
-    setState(() { 
-      _selectedClassRoom = classRoom; 
-      _selectedStudentId = null; 
-      _filterStudents(); 
-    });
-  }
-
-  void _filterStudents() {
-    _filteredStudents = _allStudents.where((student) {
-      bool matchStage = _selectedStage == null || student['studentStage'] == _selectedStage;
-      bool matchClass = _selectedClassRoom == null || (student['classRoomName'] ?? student['classRoom']) == _selectedClassRoom;
-      return matchStage && matchClass;
+  List<Map<String, dynamic>> get _filteredStudents {
+    final query = _query.trim().toLowerCase();
+    return _allStudents.where((student) {
+      final stage = (student['studentStage'] ?? student['stageName'])?.toString();
+      final classroom = (student['classRoomName'] ?? student['classRoom'])?.toString();
+      final stageMatches = _selectedStage == null || stage == _selectedStage;
+      final classMatches = _selectedClassRoom == null || classroom == _selectedClassRoom;
+      if (!stageMatches || !classMatches) return false;
+      if (query.isEmpty) return true;
+      final values = [
+        _studentName(student),
+        student['id'],
+        student['nationalIdNumber'],
+        student['idNumber'],
+      ];
+      return values.any((value) => '$value'.toLowerCase().contains(query));
     }).toList();
+  }
+
+  Future<void> _openStudent(Map<String, dynamic> student) async {
+    final id = student['id']?.toString();
+    if (id == null || id.isEmpty) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditStudentScreen(
+          token: widget.token,
+          studentId: id,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppCore.themeNotifier,
-      builder: (context, currentMode, child) {
-        bool isDark = currentMode == ThemeMode.dark;
-        Color bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA);
-        Color cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
-        Color textColor = isDark ? Colors.white : Colors.black87;
+      builder: (context, mode, child) {
+        final isDark = mode == ThemeMode.dark;
+        final bg = isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA);
+        final card = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+        final text = isDark ? Colors.white : Colors.black87;
 
         return Scaffold(
-          backgroundColor: bgColor,
+          backgroundColor: bg,
           appBar: AppBar(
-            title: const Text('تعديل الطلاب', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), 
+            title: const Text('تعديل الطلاب', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            centerTitle: true,
             flexibleSpace: Container(
               decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF1A237E), Color(0xFF4A90E2)],
-                ),
+                gradient: LinearGradient(colors: [Color(0xFF1A237E), Color(0xFF4A90E2)]),
               ),
-            ), 
+            ),
             iconTheme: const IconThemeData(color: Colors.white),
           ),
-          body: Column(
-            children: [
-              Container(
-                color: cardColor, 
-                padding: const EdgeInsets.all(15),
-                child: Row(
+          body: RefreshIndicator(
+            onRefresh: () async {
+              setState(() {
+                _allStudents = widget.preLoadedStudents
+                    .whereType<Map>()
+                    .map((e) => Map<String, dynamic>.from(e))
+                    .toList();
+              });
+            },
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+              children: [
+                Row(
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        value: _selectedStage,
                         decoration: InputDecoration(
-                          labelText: 'اختر الصف', 
-                          labelStyle: TextStyle(color: textColor), 
-                          filled: true, 
-                          fillColor: isDark ? Colors.black12 : Colors.grey[50], 
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300))
+                          labelText: 'اختر الصف',
+                          filled: true,
+                          fillColor: card,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                         ),
-                        value: _selectedStage, 
-                        dropdownColor: cardColor, 
-                        style: TextStyle(color: textColor, fontSize: 16),
-                        items: _stages.map((stage) => DropdownMenuItem(value: stage, child: Text(stage))).toList(),
-                        onChanged: _onStageSelected,
+                        dropdownColor: card,
+                        style: TextStyle(color: text),
+                        items: _stages.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                        onChanged: (value) => setState(() {
+                          _selectedStage = value;
+                          _selectedClassRoom = null;
+                        }),
                       ),
                     ),
-                    const SizedBox(width: 15),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        value: _selectedClassRoom,
                         decoration: InputDecoration(
-                          labelText: 'اختر الشعبة', 
-                          labelStyle: TextStyle(color: textColor), 
-                          filled: true, 
-                          fillColor: isDark ? Colors.black12 : Colors.grey[50], 
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300))
+                          labelText: 'اختر الشعبة',
+                          filled: true,
+                          fillColor: card,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                         ),
-                        value: _selectedClassRoom, 
-                        dropdownColor: cardColor, 
-                        style: TextStyle(color: textColor, fontSize: 16),
-                        items: _classRooms.map((cr) => DropdownMenuItem(value: cr, child: Text(cr))).toList(),
-                        onChanged: _stages.isEmpty ? null : _onClassRoomSelected,
+                        dropdownColor: card,
+                        style: TextStyle(color: text),
+                        items: _classRooms.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                        onChanged: _selectedStage == null ? null : (value) => setState(() => _selectedClassRoom = value),
                       ),
                     ),
                   ],
                 ),
-              ),
-              Expanded(
-                child: _filteredStudents.isEmpty
-                    ? Center(child: Text('الرجاء اختيار الصف والشعبة لعرض الطلاب', style: TextStyle(color: textColor, fontSize: 16)))
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(10), 
-                        itemCount: _filteredStudents.length,
-                        itemBuilder: (context, index) {
-                          var student = _filteredStudents[index];
-                          String studentId = student['id'].toString();
-                          bool isSelected = _selectedStudentId == studentId;
-                          
-                          return Card(
-                            color: isSelected ? Colors.indigo.withOpacity(0.1) : cardColor,
-                            elevation: isSelected ? 3 : 1,
-                            shape: RoundedRectangleBorder(
-                              side: BorderSide(color: isSelected ? Colors.indigo : Colors.transparent, width: 2), 
-                              borderRadius: BorderRadius.circular(12)
-                            ),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-                              leading: CircleAvatar(
-                                backgroundColor: isSelected ? Colors.indigo : (isDark ? Colors.grey[800] : Colors.blueAccent.withOpacity(0.2)), 
-                                child: Icon(Icons.person, color: isSelected ? Colors.white : (isDark ? Colors.grey[400] : Colors.indigo))
-                              ),
-                              title: Text(
-                                student['fullName'] ?? student['name'] ?? 'بدون اسم', 
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor)
-                              ),
-                              subtitle: Text('رقم الطالب: $studentId', style: const TextStyle(color: Colors.grey, fontSize: 14)),
-                              onTap: () => setState(() => _selectedStudentId = studentId),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(15), 
-                color: cardColor,
-                child: SizedBox(
-                  width: double.infinity, 
-                  height: 55,
-                  child: ElevatedButton.icon(
-                    onPressed: _selectedStudentId == null 
-                        ? null 
-                        : () => Navigator.push(
-                            context, 
-                            MaterialPageRoute(
-                              builder: (context) => EditStudentScreen(
-                                token: widget.token, 
-                                studentId: _selectedStudentId!
-                              )
-                            )
-                          ),
-                    icon: const Icon(Icons.edit, color: Colors.white),
-                    label: const Text('تعديل بيانات الطالب المحدد', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo, 
-                      disabledBackgroundColor: Colors.grey[400], 
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
-                    ),
+                const SizedBox(height: 14),
+                TextField(
+                  textDirection: TextDirection.rtl,
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: card,
+                    hintText: 'ابحث باسم الطالب أو الرقم',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(onPressed: () => setState(() => _query = ''), icon: const Icon(Icons.clear)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
                   ),
                 ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(18)),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.people_alt_outlined, color: Colors.indigo),
+                      const SizedBox(width: 10),
+                      Text('${_filteredStudents.length} طالب', style: TextStyle(fontWeight: FontWeight.bold, color: text)),
+                      const Spacer(),
+                      if (_query.isNotEmpty) Text('نتائج البحث', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_filteredStudents.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(35),
+                    decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(18)),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.person_search_outlined, size: 55, color: Colors.grey),
+                        const SizedBox(height: 12),
+                        Text(
+                          _query.isNotEmpty ? 'لا توجد نتائج مطابقة للبحث' : 'اختر الصف والشعبة أو استخدم البحث لعرض الطلاب',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: text, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ..._filteredStudents.map((student) => _studentCard(student, card, text)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _studentCard(Map<String, dynamic> student, Color card, Color text) {
+    final name = _studentName(student);
+    final id = '${student['id'] ?? ''}';
+    final stage = '${student['studentStage'] ?? student['stageName'] ?? ''}';
+    final classroom = '${student['classRoomName'] ?? student['classRoom'] ?? ''}';
+
+    return Card(
+      color: card,
+      elevation: 1.5,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => _openStudent(student),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              CircleAvatar(
+                radius: 27,
+                backgroundColor: Colors.indigo.withOpacity(0.12),
+                child: const Icon(Icons.person, color: Colors.indigo, size: 30),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: text), textAlign: TextAlign.right),
+                    const SizedBox(height: 7),
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 6,
+                      runSpacing: 5,
+                      children: [
+                        if (stage.isNotEmpty) _chip(stage, Colors.indigo),
+                        if (classroom.isNotEmpty) _chip('شعبة $classroom', Colors.blue),
+                      ],
+                    ),
+                    if (id.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text('رقم الطالب: $id', style: const TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.right),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'تعديل بيانات الطالب',
+                onPressed: () => _openStudent(student),
+                icon: const Icon(Icons.edit_outlined, color: Colors.indigo),
               ),
             ],
           ),
-        );
-      }
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(color: color.withOpacity(0.10), borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
     );
   }
 }

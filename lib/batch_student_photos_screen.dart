@@ -6,6 +6,7 @@ import 'package:google_mlkit_selfie_segmentation/google_mlkit_selfie_segmentatio
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_core.dart';
 
@@ -38,6 +39,117 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
   bool _saving = false;
   bool _backgroundRemovedForCurrentImage = false;
   SelfieSegmenter? _segmenter;
+  bool _restoringSession = false;
+
+  String _sessionKey(String? stage, String? classroom) {
+    final a = Uri.encodeComponent(stage ?? '');
+    final b = Uri.encodeComponent(classroom ?? '');
+    return 'batch_student_photo_session_${widget.schoolId}_${a}_${b}';
+  }
+
+  Future<void> _persistSession() async {
+    if (_selectedStage == null || _selectedClassRoom == null || _students.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _sessionKey(_selectedStage, _selectedClassRoom);
+      final payload = {
+        'stage': _selectedStage,
+        'classRoom': _selectedClassRoom,
+        'photographed': _photographed.toList(),
+        'skipped': _skipped.toList(),
+        'notPhotographed': _notPhotographed.toList(),
+        'currentIndex': _currentIndex,
+        'updatedAt': DateTime.now().toIso8601String(),
+      };
+      await prefs.setString(key, jsonEncode(payload));
+      await prefs.setString('batch_student_last_session_${widget.schoolId}', key);
+    } catch (e) {
+      debugPrint('Persist student batch session error: $e');
+    }
+  }
+
+  Future<void> _restoreSessionForCurrentSelection() async {
+    if (_selectedStage == null || _selectedClassRoom == null || _students.isEmpty) return;
+    _restoringSession = true;
+    if (mounted) setState(() {});
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _sessionKey(_selectedStage, _selectedClassRoom);
+      final raw = prefs.getString(key);
+      _photographed.clear();
+      _notPhotographed.clear();
+      _skipped.clear();
+      if (raw != null && raw.isNotEmpty) {
+        final data = jsonDecode(raw);
+        if (data is Map) {
+          final validIds = _students.map(_studentId).toSet();
+          _photographed.addAll((data['photographed'] as List? ?? const []).map((e) => '$e').where(validIds.contains));
+          _skipped.addAll((data['skipped'] as List? ?? const []).map((e) => '$e').where(validIds.contains));
+          _notPhotographed.addAll((data['notPhotographed'] as List? ?? const []).map((e) => '$e').where(validIds.contains));
+          _notPhotographed.addAll(_skipped);
+          _notPhotographed.removeAll(_photographed);
+        }
+      }
+      _currentIndex = _firstPendingIndex(_students);
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Restore student batch session error: $e');
+      _currentIndex = _firstPendingIndex(_students);
+    } finally {
+      _restoringSession = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _clearPersistedCurrentSession() async {
+    if (_selectedStage == null || _selectedClassRoom == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_sessionKey(_selectedStage, _selectedClassRoom));
+      final lastKey = 'batch_student_last_session_${widget.schoolId}';
+      if (prefs.getString(lastKey) == _sessionKey(_selectedStage, _selectedClassRoom)) {
+        await prefs.remove(lastKey);
+      }
+    } catch (e) {
+      debugPrint('Clear student batch session error: $e');
+    }
+  }
+
+  Future<void> _restoreLastSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = prefs.getString('batch_student_last_session_${widget.schoolId}');
+      if (key == null || key.isEmpty || !mounted) return;
+      final raw = prefs.getString(key);
+      if (raw == null) return;
+      final data = jsonDecode(raw);
+      if (data is! Map) return;
+      final stage = data['stage']?.toString();
+      final classroom = data['classRoom']?.toString();
+      if (stage == null || classroom == null || !_stages.contains(stage)) return;
+      final filtered = widget.allStudents.whereType<Map>().where((s) {
+        return s['studentStage']?.toString() == stage &&
+            (s['classRoomName'] ?? s['classRoom'])?.toString() == classroom;
+      }).map((s) => Map<String, dynamic>.from(s)).toList();
+      if (filtered.isEmpty || !mounted) return;
+      setState(() {
+        _selectedStage = stage;
+        _selectedClassRoom = classroom;
+        _students = filtered;
+      });
+      await _restoreSessionForCurrentSelection();
+    } catch (e) {
+      debugPrint('Restore last student session error: $e');
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreLastSession();
+  }
 
   List<String> get _stages => widget.allStudents
       .whereType<Map>()
@@ -99,6 +211,7 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
       _currentImage = null;
       _backgroundRemovedForCurrentImage = false;
     });
+    _restoreSessionForCurrentSelection();
   }
 
   int _firstPendingIndex(List<Map<String, dynamic>> list) {
@@ -347,6 +460,8 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
       }
     });
 
+    _persistSession();
+
     if (isLast && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -465,10 +580,12 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
 
       _photographed.add(id);
       _notPhotographed.remove(id);
+      await _persistSession();
       return true;
     } catch (e) {
       debugPrint('Batch save error: $e');
       _notPhotographed.add(id);
+      await _persistSession();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -496,7 +613,22 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
     });
   }
 
-  void _restart() {
+  Future<void> _restart() async {
+    if (_students.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('بدء جلسة جديدة'),
+        content: const Text('سيتم مسح سجل هذه الشعبة من الجهاز والبدء من أول طالب. هل تريد المتابعة؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('بدء من جديد')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _clearPersistedCurrentSession();
+    if (!mounted) return;
     setState(() {
       _currentIndex = 0;
       _photographed.clear();
@@ -599,6 +731,11 @@ class _BatchStudentPhotosScreenState extends State<BatchStudentPhotosScreen> {
                     ],
                   ),
                 ),
+                if (_restoringSession)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+                    child: LinearProgressIndicator(minHeight: 3),
+                  ),
                 if (_students.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),

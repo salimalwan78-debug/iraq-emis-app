@@ -562,6 +562,121 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     return widgets;
   }
 
+  Widget _studentSection(
+    String title,
+    List<Widget> children,
+    bool isDark,
+  ) {
+    return Card(
+      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      margin: const EdgeInsets.only(bottom: 14),
+      elevation: 1.2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                color: Colors.indigo.shade400,
+              ),
+            ),
+            const SizedBox(height: 13),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildStudentFormSections(bool isDark, Color textColor) {
+    final student = _studentData!;
+    final identification = student['identification'] is Map
+        ? Map<String, dynamic>.from(student['identification'])
+        : <String, dynamic>{};
+    final address = student['address'] is Map
+        ? Map<String, dynamic>.from(student['address'])
+        : <String, dynamic>{};
+
+    Widget field(String key, [Map<String, dynamic>? owner]) {
+      final target = owner ?? student;
+      if (!target.containsKey(key)) return const SizedBox.shrink();
+      return _fieldFor(key, target[key], target, isDark, textColor);
+    }
+
+    final result = <Widget>[
+      _studentSection('الاسم الكامل', [
+        field('name'),
+        field('fatherName'),
+        field('grandFatherName'),
+        field('fathersGrandFatherName'),
+        field('surName'),
+        field('motherName'),
+        field('mothersFatherName'),
+        field('mothersGrandFatherName'),
+      ], isDark),
+      _studentSection('البيانات الشخصية', [
+        field('dateOfBirth'),
+        field('gender'),
+        field('nationality'),
+        field('countryOfBirth'),
+        field('homeTown'),
+        field('motherTongue'),
+        field('maritalStatus'),
+        field('bloodGroup'),
+        field('religion'),
+        field('homePhoneNumber'),
+        field('notes'),
+        field('specialNeeds'),
+        field('studyLanguage'),
+        field('economicLevel'),
+        field('isCoveredBySocialWelfare'),
+        field('isDroppedOutFromSchool'),
+      ], isDark),
+      _studentSection('وثيقة التعريف', [
+        if (identification.isNotEmpty) ...[
+          if (identification.containsKey('idType'))
+            _dropdownField(key: 'idType', owner: identification, isDark: isDark, textColor: textColor),
+          ...identification.entries
+              .where((entry) => entry.key != 'idType' && _identityFieldVisible(entry.key, identification['idType']))
+              .map((entry) => _fieldFor(entry.key, entry.value, identification, isDark, textColor)),
+        ],
+      ], isDark),
+      _studentSection('البيانات الدراسية', [
+        field('academicYearId'),
+        field('stageId'),
+        field('classRoomId'),
+      ], isDark),
+      _studentSection('العنوان', [
+        field('countryStructureId', address),
+        field('town', address),
+        field('area', address),
+        field('quarter', address),
+        field('street', address),
+        field('address1', address),
+        field('address2', address),
+        field('closestLocation', address),
+      ], isDark),
+    ];
+
+    final ageReason = student['ageExceptionReason']?.toString() ?? '';
+    final genderReason = student['genderExceptionReason']?.toString() ?? '';
+    if (ageReason.trim().isNotEmpty || genderReason.trim().isNotEmpty) {
+      result.add(
+        _studentSection('الاستثناءات', [
+          if (ageReason.trim().isNotEmpty) field('ageExceptionReason'),
+          if (genderReason.trim().isNotEmpty) field('genderExceptionReason'),
+        ], isDark),
+      );
+    }
+
+    return result;
+  }
+
   bool _identityFieldVisible(String key, dynamic idType) {
     final t = int.tryParse(idType?.toString() ?? '');
     if (t == 3) return {'idNumber','jinsiyaIdNumber','issuer','recordNumber','pageNumber','issuingCountry','issuingDate','nameOfDocument'}.contains(key);
@@ -1245,8 +1360,7 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                                 ),
                               ),
                               const SizedBox(height: 15),
-                              ..._buildDynamicFields(
-                                _studentData!,
+                              ..._buildStudentFormSections(
                                 isDark,
                                 textColor,
                               ),
