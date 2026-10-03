@@ -30,35 +30,17 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   Map<String, dynamic>? _studentData;
   File? _pickedImage;
 
-  // Arabic display labels for EMIS coded/reference values.
+  // Arabic display names for coded EMIS values. The raw coded values are
+  // deliberately kept inside _studentData so saving still sends the exact
+  // values returned by EMIS.
   final Map<String, String> _displayValues = {};
   final Map<String, Map<String, String>> _referenceMaps = {};
 
-  static const Map<String, List<String>> _referenceEndpointCandidates = {
-    'gender': [
-      '/selectoption/getgenders',
-      '/selectoption/getGenders',
-      '/selectoption/getgender',
-      '/selectoption/getGender',
-    ],
-    'religion': [
-      '/selectoption/getreligions',
-      '/selectoption/getReligions',
-      '/selectoption/getreligion',
-      '/selectoption/getReligion',
-    ],
-    'nationality': [
-      '/selectoption/getnationalities',
-      '/selectoption/getNationalities',
-      '/selectoption/getnationality',
-      '/selectoption/getNationality',
-    ],
-    'bloodGroup': [
-      '/selectoption/getbloodgroups',
-      '/selectoption/getBloodGroups',
-      '/selectoption/getbloodgroup',
-      '/selectoption/getBloodGroup',
-    ],
+  // Reference fields whose option endpoints are confirmed by the supplied
+  // EMIS source files. Raw values remain in _studentData for saving.
+  static const Set<String> _referenceFields = {
+    'stageId',
+    'classRoomId',
   };
 
   final Map<String, String> _officialArabicNames = {
@@ -81,7 +63,59 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     'bloodGroup': 'فئة الدم',
     'gender': 'الجنس',
     'nationality': 'الجنسية',
+    'name': 'الإسم',
+    'fatherName': 'إسم الأب',
+    'grandFatherName': 'اسم والد الأب',
+    'fathersGrandFatherName': 'اسم جد الأب',
+    'surName': 'اللقب',
+    'motherName': 'إسم الأم',
+    'mothersFatherName': 'اسم والد الأم',
+    'mothersGrandFatherName': 'اسم جد الأم',
+    'dateOfBirth': 'تاريخ التولّد',
+    'birthDate': 'تاريخ التولّد',
+    'countryOfBirth': 'محل الولادة',
+    'gender': 'الجنس',
+    'nationality': 'الجنسية',
+    'homeTown': 'مسقط الرأس',
+    'motherTongue': 'اللغة الأم',
+    'maritalStatus': 'الحالة الاجتماعية',
+    'bloodGroup': 'فئة الدم',
+    'religion': 'الديانة',
+    'homePhoneNumber': 'رقم الهاتف',
     'notes': 'ملاحظات',
+    'identification': 'المعلومات الرئيسية',
+    'idNumber': 'رقم الهوية',
+    'idType': 'نوع الهوية',
+    'issuingCountry': 'بلد الإصدار',
+    'recordNumber': 'رقم السجل',
+    'pageNumber': 'رقم الصحيفة',
+    'issuer': 'جهة الإصدار',
+    'issuingDate': 'تاريخ الإصدار',
+    'nameOfDocument': 'نوع الوثيقة',
+    'fatherIdentification': 'هوية الأب',
+    'address': 'العنوان',
+    'addressType': 'نوع العنوان',
+    'countryStructureId': 'هيكل الدولة',
+    'town': 'المدينة/القرية',
+    'area': 'الحي',
+    'quarter': 'المحلة',
+    'street': 'زقاق',
+    'apartmentNumber': 'رقم الشقة',
+    'closestLocation': 'أقرب نقطة دالة',
+    'buildingNumber': 'رقم البناية',
+    'schoolId': 'المدرسة',
+    'stageId': 'الصف',
+    'classRoomId': 'الشعبة',
+    'censusNumber': 'الرقم الإحصائي',
+    'specialNeeds': 'الاحتياجات الخاصة',
+    'studyLanguage': 'لغة الدراسة',
+    'economicLevel': 'المستوى الاقتصادي',
+    'isCoveredBySocialWelfare': 'مشمول بالرعاية الاجتماعية؟',
+    'isDroppedOutFromSchool': 'متسرّب من المدرسة؟',
+    'lastYearResult': 'نتيجة العام الدراسي السابق',
+    'ageExceptionReason': 'سبب استثناء العمر',
+    'genderExceptionReason': 'سبب استثناء الجنس',
+    'isDisabled': 'مفعّل',
   };
 
   @override
@@ -105,15 +139,16 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       );
 
       if (response.statusCode == 200) {
+        if (!mounted) return;
         final decoded = jsonDecode(
           utf8.decode(response.bodyBytes),
         );
 
         if (decoded is! Map) {
-          throw const FormatException('بيانات الطالب ليست بصيغة صحيحة');
+          throw Exception('استجابة بيانات الطالب غير صالحة');
         }
 
-        final student = Map<String, dynamic>.from(decoded);
+        final student = _unwrapStudentResponse(decoded);
         await _loadReferenceLabels(student);
 
         if (!mounted) return;
@@ -130,89 +165,112 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     }
   }
 
-  Future<void> _loadReferenceLabels(Map<String, dynamic> student) async {
-    final keys = _referenceEndpointCandidates.keys
-        .where((key) => student.containsKey(key) && student[key] != null)
-        .toList();
+  // ============================================================
+  // EMIS FIELD / DISPLAY MAPPING
+  // ============================================================
 
-    for (final key in keys) {
-      final map = await _fetchReferenceMap(key);
-      if (map.isNotEmpty) {
-        _referenceMaps[key] = map;
-        final display = _lookupDisplayName(map, student[key]);
-        if (display != null && display.isNotEmpty) {
-          _displayValues[key] = display;
-        }
-      }
+  // The saved HTML is the rendered EMIS edit page. Closed Quasar selects do
+  // not contain their complete option lists in the DOM, so we never invent
+  // endpoint names here. If EMIS returns {value, displayName}, that Arabic
+  // displayName is used directly; otherwise the raw code is preserved.
+  Map<String, dynamic> _unwrapStudentResponse(dynamic decoded) {
+    if (decoded is Map) {
+      final data = decoded['data'];
+      if (data is Map) return Map<String, dynamic>.from(data);
+      return Map<String, dynamic>.from(decoded);
     }
-
-    // Some EMIS responses return the option itself, e.g.:
-    // {"value": 1, "displayName": "ذكر"}.
-    _collectInlineDisplayValues(student);
+    throw Exception('استجابة بيانات الطالب غير صالحة');
   }
 
-  Future<Map<String, String>> _fetchReferenceMap(String field) async {
-    final cached = _referenceMaps[field];
-    if (cached != null && cached.isNotEmpty) return cached;
+  Future<void> _loadReferenceLabels(Map<String, dynamic> student) async {
+    _displayValues.clear();
+    _referenceMaps.clear();
+    _collectInlineDisplayValues(student);
 
-    final endpoints = _referenceEndpointCandidates[field] ?? const <String>[];
+    // These two endpoints are present in the supplied EMIS source material.
+    // They return {value, displayName}.
+    final schoolId = student['schoolId']?.toString() ?? '';
+    final stageId = student['stageId']?.toString() ?? '';
 
-    for (final endpoint in endpoints) {
-      try {
-        final response = await http.get(
-          Uri.parse('https://emis.moedu.gov.iq/api$endpoint'),
-          headers: {
-            'Authorization': widget.token,
-            'Accept': 'application/json',
-          },
+    if (schoolId.isNotEmpty) {
+      final stages = await _fetchOptions(
+        '/selectoption/getAvailableStagesForStudent',
+        query: {'schoolId': schoolId},
+      );
+      if (stages.isNotEmpty) {
+        _referenceMaps['stageId'] = stages;
+        final display = _lookupDisplayName(stages, student['stageId']);
+        if (display != null) _displayValues['stageId'] = display;
+      }
+
+      // Fallback endpoint also confirmed by the supplied EMIS scripts.
+      if (!_referenceMaps.containsKey('stageId')) {
+        final fallback = await _fetchOptions(
+          '/selectoption/getschoolstages/$schoolId',
         );
-
-        if (response.statusCode != 200) continue;
-
-        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-        final items = _extractOptionList(decoded);
-        final map = <String, String>{};
-
-        for (final item in items) {
-          final code = _firstNonNull(item, const [
-            'value',
-            'id',
-            'code',
-            'key',
-          ]);
-          final name = _firstNonNull(item, const [
-            'displayName',
-            'name',
-            'label',
-            'text',
-            'title',
-          ]);
-
-          if (code != null && name != null) {
-            map[_normaliseCode(code)] = name.toString().trim();
-          }
+        if (fallback.isNotEmpty) {
+          _referenceMaps['stageId'] = fallback;
+          final display = _lookupDisplayName(fallback, student['stageId']);
+          if (display != null) _displayValues['stageId'] = display;
         }
-
-        if (map.isNotEmpty) return map;
-      } catch (e) {
-        debugPrint('تعذر قراءة قائمة $field من $endpoint: $e');
       }
     }
 
-    return {};
+    if (schoolId.isNotEmpty && stageId.isNotEmpty) {
+      final classrooms = await _fetchOptions(
+        '/selectoption/getClassRooms',
+        query: {'schoolId': schoolId, 'stageId': stageId},
+      );
+      if (classrooms.isNotEmpty) {
+        _referenceMaps['classRoomId'] = classrooms;
+        final display = _lookupDisplayName(classrooms, student['classRoomId']);
+        if (display != null) _displayValues['classRoomId'] = display;
+      }
+    }
+  }
+
+  Future<Map<String, String>> _fetchOptions(
+    String endpoint, {
+    Map<String, String>? query,
+  }) async {
+    try {
+      final base = Uri.parse('https://emis.moedu.gov.iq/api$endpoint');
+      final uri = query == null || query.isEmpty
+          ? base
+          : base.replace(queryParameters: query);
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': widget.token,
+          'Accept': 'application/json',
+        },
+      );
+      if (response.statusCode != 200) return {};
+
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final items = _extractOptionList(decoded);
+      final result = <String, String>{};
+      for (final item in items) {
+        final value = _firstNonNull(item, const ['value', 'id', 'code', 'key']);
+        final display = _firstNonNull(
+          item,
+          const ['displayName', 'name', 'label', 'text', 'title'],
+        );
+        if (value != null && display != null) {
+          result[_normaliseCode(value)] = display.toString().trim();
+        }
+      }
+      return result;
+    } catch (e) {
+      debugPrint('تعذر جلب خيارات EMIS من $endpoint: $e');
+      return {};
+    }
   }
 
   List<Map<String, dynamic>> _extractOptionList(dynamic decoded) {
     dynamic value = decoded;
-
     if (value is Map) {
-      for (final key in const [
-        'data',
-        'items',
-        'results',
-        'options',
-        'list',
-      ]) {
+      for (final key in const ['data', 'items', 'results', 'options', 'list']) {
         final candidate = value[key];
         if (candidate is List) {
           value = candidate;
@@ -220,21 +278,15 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
         }
       }
     }
-
     if (value is! List) return [];
-
-    return value
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
+    return value.whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item)).toList();
   }
 
   dynamic _firstNonNull(Map item, List<String> keys) {
     for (final key in keys) {
       final value = item[key];
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value;
-      }
+      if (value != null && value.toString().trim().isNotEmpty) return value;
     }
     return null;
   }
@@ -243,46 +295,29 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
     if (value == null) return '';
     final text = value.toString().trim();
     final number = num.tryParse(text);
-    if (number != null) {
-      if (number == number.toInt()) return number.toInt().toString();
-      return number.toString();
-    }
+    if (number != null && number == number.toInt()) return number.toInt().toString();
     return text.toLowerCase();
   }
 
   String? _lookupDisplayName(Map<String, String> map, dynamic rawValue) {
-    if (rawValue == null) return null;
-
     if (rawValue is Map) {
       final inline = _firstNonNull(rawValue, const [
-        'displayName',
-        'name',
-        'label',
-        'text',
-        'title',
+        'displayName', 'name', 'label', 'text', 'title'
       ]);
       if (inline != null) return inline.toString().trim();
       rawValue = _firstNonNull(rawValue, const ['value', 'id', 'code']);
     }
-
     return map[_normaliseCode(rawValue)];
   }
 
   void _collectInlineDisplayValues(Map<String, dynamic> map, [String prefix = '']) {
     map.forEach((key, value) {
       final path = prefix.isEmpty ? key : '$prefix.$key';
-
       if (value is Map) {
         final display = _firstNonNull(value, const [
-          'displayName',
-          'name',
-          'label',
-          'text',
-          'title',
+          'displayName', 'name', 'label', 'text', 'title'
         ]);
-        if (display != null) {
-          _displayValues[path] = display.toString().trim();
-        }
+        if (display != null) _displayValues[path] = display.toString().trim();
         _collectInlineDisplayValues(Map<String, dynamic>.from(value), path);
       }
     });
@@ -291,22 +326,12 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   String _displayValueFor(String key, dynamic value) {
     final inline = _displayValues[key];
     if (inline != null && inline.isNotEmpty) return inline;
-
-    final map = _referenceMaps[key];
-    final resolved = map == null ? null : _lookupDisplayName(map, value);
-    if (resolved != null && resolved.isNotEmpty) return resolved;
-
     if (value is Map) {
       final display = _firstNonNull(value, const [
-        'displayName',
-        'name',
-        'label',
-        'text',
-        'title',
+        'displayName', 'name', 'label', 'text', 'title'
       ]);
       if (display != null) return display.toString().trim();
     }
-
     return value?.toString() ?? '';
   }
 
@@ -828,11 +853,13 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
   List<Widget> _buildDynamicFields(
     Map<String, dynamic> dataMap,
     bool isDark,
-    Color textColor,
-  ) {
+    Color textColor, {
+    String prefix = '',
+  }) {
     final List<Widget> widgets = [];
 
     dataMap.forEach((key, value) {
+      final path = prefix.isEmpty ? key : '$prefix.$key';
       if (key == 'imageUrl' ||
           key == 'id' ||
           key == 'createdAt' ||
@@ -866,7 +893,12 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     ),
                   ),
                   const SizedBox(height: 15),
-                  ..._buildDynamicFields(value, isDark, textColor),
+                  ..._buildDynamicFields(
+                    value,
+                    isDark,
+                    textColor,
+                    prefix: path,
+                  ),
                 ],
               ),
             ),
@@ -881,11 +913,11 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
             initialValue: _displayValueFor(key, value),
             isDark: isDark,
             textColor: textColor,
-            readOnly: _referenceEndpointCandidates.containsKey(key) &&
-                _displayValueFor(key, value) != value?.toString(),
+            readOnly: _referenceFields.contains(key),
             onChanged: (v) {
-              if (!(_referenceEndpointCandidates.containsKey(key) &&
-                  _displayValueFor(key, value) != value?.toString())) {
+              // Coded EMIS fields must keep their original numeric/code value
+              // for the API. Their Arabic name is display-only.
+              if (!_referenceFields.contains(key)) {
                 dataMap[key] = v;
               }
             },
@@ -1110,8 +1142,8 @@ class PlainTextField extends StatefulWidget {
   final dynamic initialValue;
   final bool isDark;
   final Color textColor;
-  final bool readOnly;
   final Function(String) onChanged;
+  final bool readOnly;
 
   const PlainTextField({
     super.key,
@@ -1119,8 +1151,8 @@ class PlainTextField extends StatefulWidget {
     required this.initialValue,
     required this.isDark,
     required this.textColor,
-    this.readOnly = false,
     required this.onChanged,
+    this.readOnly = false,
   });
 
   @override
