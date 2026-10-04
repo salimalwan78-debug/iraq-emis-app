@@ -381,6 +381,160 @@ class _BatchTeacherPhotosScreenState extends State<BatchTeacherPhotosScreen> {
     throw Exception('لم يرجع خادم EMIS رابط الصورة');
   }
 
+  Map<String, dynamic> _buildEmployeePayload(
+    Map<String, dynamic> old,
+    String imageUrl,
+  ) {
+    final identification = old['identification'] is Map
+        ? Map<String, dynamic>.from(old['identification'])
+        : <String, dynamic>{};
+    final address = old['address'] is Map
+        ? Map<String, dynamic>.from(old['address'])
+        : <String, dynamic>{};
+    final employment = old['employmentRecord'] is Map
+        ? Map<String, dynamic>.from(old['employmentRecord'])
+        : <String, dynamic>{};
+
+    final positions = employment['employmentPositions'];
+    final currentPosition = old['currentEmploymentPosition'] ??
+        (positions is List &&
+                positions.isNotEmpty &&
+                positions.first is Map
+            ? positions.first['position']
+            : null);
+
+    final status = old['status'];
+    final statusString = status == null ? '' : '$status'.trim();
+    final positionString = currentPosition == null
+        ? ''
+        : '$currentPosition'.trim();
+
+    return <String, dynamic>{
+      // This is intentionally the same payload shape used by the working
+      // Edit Teacher screen. Do not send the raw getemployee DTO here.
+      'Id': old['id'],
+      'EmployeeIdNumber': old['employeeIdNumber'] ?? '',
+      'FamilyNumber': _nullable(old['familyNumber']),
+      'IsTeacher': old['isTeacher'] ?? true,
+      'EmploymentType': old['employmentType'] ?? '',
+      'EmployeeCategory': old['employeeCategory'] ?? '',
+      'Classification': old['classification'] ?? '',
+      'JobDesignation': _nullable(old['jobDesignation']),
+      'EmploymentGrade': _nullable(old['employmentGrade']),
+      'DateOfStartWorking': _dateOnlyOrNull(old['dateOfStartWorking']),
+      'EducationLevel': _nullable(old['educationLevel']),
+      'GraduationYear': _dateOnlyOrNull(old['graduationYear']),
+      'UniversityName': _nullable(old['universityName']),
+      'Specialization': _nullable(old['specialization']),
+      'Name': old['name'] ?? '',
+      'FatherName': old['fatherName'] ?? '',
+      'GrandFatherName': old['grandFatherName'] ?? '',
+      'FathersGrandFatherName': old['fathersGrandFatherName'] ?? '',
+      'SurName': old['surName'] ?? '',
+      'MotherName': old['motherName'] ?? '',
+      'MothersFatherName': old['mothersFatherName'] ?? '',
+      'MothersGrandFatherName': old['mothersGrandFatherName'] ?? '',
+      'ImageUrl': imageUrl,
+      'DateOfBirth': _dateOnlyOrNull(old['dateOfBirth']),
+      'Gender': _intOrNull(old['gender']),
+      'Nationality': old['nationality'] ?? '',
+      'CountryOfBirth': old['countryOfBirth'] ?? '',
+      'HomeTown': old['homeTown'] ?? '',
+      'IdentificationId': old['identificationId'] ?? 0,
+      'Identification': {
+        'IdNumber': identification['idNumber'] ?? '',
+        'IssuingCountry': identification['issuingCountry'] ?? '',
+        'IdType': _intOrNull(identification['idType']),
+        'issuingDate': identification['issuingDate'],
+      },
+      'FatherIdentificationId': old['fatherIdentificationId'],
+      'FatherIdentification': old['fatherIdentification'] is Map
+          ? old['fatherIdentification']
+          : {
+              'IdNumber': '',
+              'IssuingCountry': 'العراق',
+              'IdType': 0,
+              'issuingDate': null,
+            },
+      'MotherTongue': old['motherTongue'] ?? '',
+      'MaritalStatus': old['maritalStatus'] ?? '',
+      'BloodGroup': old['bloodGroup'] ?? '',
+      'Religion': old['religion'] ?? '',
+      'HomePhoneNumber': _nullable(old['homePhoneNumber']),
+      'Status': _intOrNull(old['status']),
+      'Notes': old['notes'] ?? '',
+      'SpecialNeedsInformation': _nullable(old['specialNeedsInformation']),
+      'EmergencyContactName': _nullable(old['emergencyContactName']),
+      'EmergencyContactRelationship':
+          _nullable(old['emergencyContactRelationship']),
+      'EmergencyContactPhoneNumber':
+          _nullable(old['emergencyContactPhoneNumber']),
+      'Address': {
+        'AddressType': 1,
+        'Town': address['town'] ?? '',
+        'Area': address['area'] ?? '',
+        'Quarter': address['quarter'] ?? '',
+        'Street': address['street'] ?? '',
+        'ClosestLocation': address['closestLocation'] ?? '',
+        'countryStructureId': address['countryStructureId'],
+        'Latitude': '${address['latitude'] ?? 0}',
+        'Longitude': '${address['longitude'] ?? 0}',
+        'ApartmentNumber': address['apartmentNumber'] ?? '',
+        'BuildingNumber': address['buildingNumber'] ?? '',
+        'Address1': address['address1'] ?? '',
+        'Address2': address['address2'] ?? '',
+        'SchoolPhoneNumber': address['schoolPhoneNumber'] ?? '',
+        'MobilePhoneNumber': address['mobilePhoneNumber'] ?? '',
+        'Email': address['email'] ?? '',
+        'Fax': address['fax'] ?? '',
+        'Website': address['website'] ?? '',
+      },
+      'AgeExceptionReason': old['ageExceptionReason'],
+      'AgeExceptionAttachmentUrl': old['ageExceptionAttachmentUrl'],
+      'ageExceptionAttachment': null,
+      'EmploymentRecord': {
+        'EmploymentStatuses': [
+          {
+            // EMIS updateemployee expects this to be a JSON string.
+            'StatusType': statusString,
+            'DisEngagementDate': null,
+            'MinistryOfficialDocumentNumber': null,
+            'Reason': null,
+            'CurrentBelongToEntityId': int.tryParse(widget.schoolId),
+          }
+        ],
+        'EmploymentPositions': [
+          {
+            'Position': positionString,
+            'InitiateDate': _dateOnlyOrNull(old['dateOfStartWorking']) ?? '',
+          }
+        ],
+        'IsCurrentlyActive': true,
+        'CurrentBelongToEntityId': int.tryParse(widget.schoolId),
+        'CurrentEmploymentPosition': positionString,
+      },
+    };
+  }
+
+  dynamic _nullable(dynamic value) {
+    if (value == null) return null;
+    final s = '$value'.trim();
+    return s.isEmpty ? null : value;
+  }
+
+  String? _dateOnlyOrNull(dynamic value) {
+    if (value == null) return null;
+    final s = '$value'.trim();
+    if (s.isEmpty) return null;
+    return s.length >= 10 ? s.substring(0, 10) : s;
+  }
+
+  int? _intOrNull(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    return int.tryParse('$value'.trim());
+  }
+
   Future<bool> _saveCurrentTeacher() async {
     final teacher = _currentTeacher;
     final image = _currentImage;
@@ -390,24 +544,21 @@ class _BatchTeacherPhotosScreenState extends State<BatchTeacherPhotosScreen> {
 
     setState(() => _saving = true);
     try {
-      // IMPORTANT: exactly like the working student-photo tool, never build
-      // a new employee DTO from the lightweight list record. EMIS returns
-      // fields from getemployee/{id} (including fields such as `emp` and the
-      // complete EmploymentRecord) that are required by updateemployee.
+      // The raw getemployee response must NOT be sent directly to
+      // updateemployee. The Edit Teacher screen that is already working
+      // sends the normalized PascalCase DTO below. Batch saving follows
+      // exactly the same API contract.
       final fullTeacher = await _fetchFullTeacher(id);
-
       final imageUrl = await _uploadImage(image);
       if (imageUrl == null || imageUrl.isEmpty) {
         throw Exception('تعذر رفع صورة المعلم');
       }
 
-      // Preserve the complete EMIS response and change only the image URL.
-      // This is the same successful strategy used by batch_student_photos.
-      fullTeacher['imageUrl'] = imageUrl;
+      final payload = _buildEmployeePayload(fullTeacher, imageUrl);
 
-      debugPrint('Update employee $id: sending complete getemployee DTO');
-      debugPrint('Update employee contains emp: ${fullTeacher.containsKey('emp')}');
-      debugPrint('Update employee contains EmploymentRecord: ${fullTeacher.containsKey('employmentRecord')}');
+      debugPrint('Batch update employee $id: normalized payload');
+      debugPrint('Payload has Id: ${payload.containsKey('Id')}');
+      debugPrint('Payload has EmploymentRecord: ${payload.containsKey('EmploymentRecord')}');
 
       final response = await http.put(
         Uri.parse('https://emis.moedu.gov.iq/api/employee/updateemployee'),
@@ -416,15 +567,15 @@ class _BatchTeacherPhotosScreenState extends State<BatchTeacherPhotosScreen> {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
         },
-        body: jsonEncode(fullTeacher),
+        body: jsonEncode(payload),
       );
 
       final body = utf8.decode(response.bodyBytes);
-      debugPrint('Update employee response ${response.statusCode}: $body');
+      debugPrint('Batch update employee response ${response.statusCode}: $body');
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        String details = body.trim();
-        if (details.length > 700) details = details.substring(0, 700);
+        var details = body.trim();
+        if (details.length > 1200) details = details.substring(0, 1200);
         throw Exception(
           details.isEmpty
               ? 'فشل حفظ بيانات المعلم (${response.statusCode})'
@@ -449,7 +600,10 @@ class _BatchTeacherPhotosScreenState extends State<BatchTeacherPhotosScreen> {
       _notPhotographed.add(id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('فشل حفظ صورة المعلم: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('فشل حفظ صورة المعلم: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
       await _persistSession();
