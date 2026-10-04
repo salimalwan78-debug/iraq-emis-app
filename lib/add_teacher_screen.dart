@@ -37,5 +37,108 @@ class _AddTeacherScreenState extends State<AddTeacherScreen> {
       if(mounted){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('تمت إضافة المعلم بنجاح'),backgroundColor:Colors.green));Navigator.pop(context,true);}
     }catch(e){if(mounted)setState(()=>_error='$e');}finally{if(mounted)setState(()=>_saving=false);}
   }
-  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('إضافة معلم جديد',style:TextStyle(color:Colors.white)),backgroundColor:const Color(0xFF4527A0),iconTheme:const IconThemeData(color:Colors.white)),body:Form(key:_formKey,child:ListView(padding:const EdgeInsets.all(16),children:[if(_error!=null)Text(_error!,style:const TextStyle(color:Colors.red),textDirection:TextDirection.rtl),_field('name','الإسم',required:true),const SizedBox(height:10),_field('fatherName','إسم الأب',required:true),const SizedBox(height:10),_field('grandFatherName','اسم والد الأب',required:true),const SizedBox(height:10),_field('fathersGrandFatherName','اسم جد الأب'),const SizedBox(height:10),_field('surName','اللقب'),const SizedBox(height:10),_field('motherName','إسم الأم'),const SizedBox(height:10),_field('nationalId','رقم البطاقة الوطنية',required:true),const SizedBox(height:10),_field('employeeIdNumber','الرقم الوظيفي'),const SizedBox(height:10),Row(children:[Expanded(child:_drop('gender','الجنس',required:true)),const SizedBox(width:10),Expanded(child:_drop('idType','نوع الهوية',required:true))]),const SizedBox(height:10),Row(children:[Expanded(child:_drop('countryOfBirth','بلد الولادة')),const SizedBox(width:10),Expanded(child:_drop('issuingCountry','بلد الإصدار'))]),const SizedBox(height:10),Row(children:[Expanded(child:_drop('motherTongue','اللغة الأم')),const SizedBox(width:10),Expanded(child:_drop('religion','الديانة'))]),const SizedBox(height:10),_field('dateOfBirth','تاريخ التولد (YYYY-MM-DD)'),const SizedBox(height:10),_field('nationality','الجنسية'),const SizedBox(height:10),_field('homeTown','مسقط الرأس'),const SizedBox(height:10),Row(children:[Expanded(child:_field('employmentType','نوع التوظيف',required:true)),const SizedBox(width:10),Expanded(child:_field('employeeCategory','فئة الموظف'))]),const SizedBox(height:10),_field('classification','التصنيف'),const SizedBox(height:20),SizedBox(height:52,child:FilledButton.icon(onPressed:_saving?null:_save,icon:_saving?const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.save),label:const Text('حفظ المعلم')))]));)
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'إضافة معلم جديد',
+          style: TextStyle(color: Colors.white),
+        ),
+        backgroundColor: const Color(0xFF4527A0),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (_error != null)
+              Text(
+                _error!,
+                style: const TextStyle(color: Colors.red),
+                textDirection: TextDirection.rtl,
+              ),
+            _field('name', 'الإسم', required: true),
+            const SizedBox(height: 10),
+            _field('fatherName', 'إسم الأب', required: true),
+            const SizedBox(height: 10),
+            _field('grandFatherName', 'اسم والد الأب', required: true),
+            const SizedBox(height: 10),
+            _field('fathersGrandFatherName', 'اسم جد الأب'),
+            const SizedBox(height: 10),
+            _field('surName', 'اللقب'),
+            const SizedBox(height: 10),
+            _field('motherName', 'إسم الأم'),
+            const SizedBox(height: 10),
+            _field('nationalId', 'رقم البطاقة الوطنية', required: true),
+            const SizedBox(height: 10),
+            _field('employeeIdNumber', 'الرقم الوظيفي'),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: _drop('gender', 'الجنس', required: true)),
+                const SizedBox(width: 10),
+                Expanded(child: _drop('idType', 'نوع الهوية', required: true)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: _drop('countryOfBirth', 'بلد الولادة')),
+                const SizedBox(width: 10),
+                Expanded(child: _drop('issuingCountry', 'بلد الإصدار')),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: _drop('motherTongue', 'اللغة الأم')),
+                const SizedBox(width: 10),
+                Expanded(child: _drop('religion', 'الديانة')),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _field('dateOfBirth', 'تاريخ التولد (YYYY-MM-DD)'),
+            const SizedBox(height: 10),
+            _field('nationality', 'الجنسية'),
+            const SizedBox(height: 10),
+            _field('homeTown', 'مسقط الرأس'),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _field(
+                    'employmentType',
+                    'نوع التوظيف',
+                    required: true,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(child: _field('employeeCategory', 'فئة الموظف')),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _field('classification', 'التصنيف'),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
+                label: const Text('حفظ المعلم'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 }
