@@ -122,6 +122,207 @@ class _TeachersListScreenState extends State<TeachersListScreen> {
     }).toList();
   }
 
+  static const List<String> _employmentStatusOptions = [
+    'مستمر',
+    'متقاعد',
+    'مفصول',
+    'متوفى',
+    'في إجازة دراسية',
+    'في إجازة أمومة',
+    'أخرى',
+  ];
+
+  Future<void> _updateTeacherStatus(Map<String, dynamic> teacher) async {
+    final employeeId = teacher['id'];
+    if (employeeId == null || '$employeeId'.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر تحديد رقم المعلم.')),
+      );
+      return;
+    }
+
+    String selectedStatus =
+        '${teacher['currentEmploymentStatus'] ?? 'مستمر'}'.trim();
+    if (!_employmentStatusOptions.contains(selectedStatus)) {
+      selectedStatus = 'مستمر';
+    }
+    final documentController = TextEditingController();
+    final reasonController = TextEditingController();
+    bool saving = false;
+    String? dialogError;
+
+    try {
+      final result = await showDialog<bool>(
+        context: context,
+        barrierDismissible: !saving,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              Future<void> save() async {
+                final reason = reasonController.text.trim();
+                if (reason.isEmpty) {
+                  setDialogState(() {
+                    dialogError = 'سبب تغيير الحالة الوظيفية مطلوب.';
+                  });
+                  return;
+                }
+
+                setDialogState(() {
+                  saving = true;
+                  dialogError = null;
+                });
+
+                try {
+                  final uri = Uri.parse(
+                    'https://emis.moedu.gov.iq/api/employee/updateemploymentstatus',
+                  );
+                  final body = <String, dynamic>{
+                    'employeeId': employeeId is num
+                        ? employeeId
+                        : int.tryParse('$employeeId') ?? employeeId,
+                    'statusType': selectedStatus,
+                    'ministryOfficialDocumentNumber':
+                        documentController.text.trim().isEmpty
+                            ? null
+                            : documentController.text.trim(),
+                    'reason': reason,
+                  };
+
+                  final response = await http.post(
+                    uri,
+                    headers: {
+                      ..._headers,
+                      'Content-Type': 'application/json',
+                    },
+                    body: jsonEncode(body),
+                  );
+
+                  if (response.statusCode < 200 ||
+                      response.statusCode >= 300) {
+                    String details = utf8.decode(response.bodyBytes).trim();
+                    if (details.isEmpty) {
+                      details = 'HTTP ${response.statusCode}';
+                    }
+                    throw Exception(details);
+                  }
+
+                  if (!mounted) return;
+                  Navigator.of(dialogContext).pop(true);
+                } catch (e) {
+                  setDialogState(() {
+                    saving = false;
+                    dialogError = 'فشل تحديث حالة المعلم: $e';
+                  });
+                }
+              }
+
+              return AlertDialog(
+                title: const Text(
+                  'تحديث حالة المعلم',
+                  textDirection: TextDirection.rtl,
+                ),
+                content: Directionality(
+                  textDirection: TextDirection.rtl,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          value: selectedStatus,
+                          decoration: const InputDecoration(
+                            labelText: 'الحالة الوظيفية *',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _employmentStatusOptions
+                              .map(
+                                (status) => DropdownMenuItem<String>(
+                                  value: status,
+                                  child: Text(status),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: saving
+                              ? null
+                              : (value) {
+                                  if (value == null) return;
+                                  setDialogState(() {
+                                    selectedStatus = value;
+                                  });
+                                },
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: documentController,
+                          enabled: !saving,
+                          decoration: const InputDecoration(
+                            labelText: 'رقم الأمر الإداري / الوثيقة',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: reasonController,
+                          enabled: !saving,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'سبب تغيير الحالة الوظيفية *',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        if (dialogError != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            dialogError!,
+                            style: const TextStyle(color: Colors.red),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: saving
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('إلغاء'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: saving ? null : save,
+                    icon: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: const Text('حفظ'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (result == true) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تم تحديث حالة المعلم بنجاح.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        await _loadTeachers();
+      }
+    } finally {
+      documentController.dispose();
+      reasonController.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -253,19 +454,7 @@ class _TeachersListScreenState extends State<TeachersListScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () async {
-          final changed = await Navigator.push<bool>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => EditTeacherScreen(
-                token: widget.token,
-                schoolId: widget.schoolId,
-                teacherId: id,
-              ),
-            ),
-          );
-          if (changed == true) await _loadTeachers();
-        },
+        onTap: null,
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -301,8 +490,35 @@ class _TeachersListScreenState extends State<TeachersListScreen> {
                   ],
                 ),
               ),
-              const SizedBox(width: 5),
-              const Icon(Icons.edit_outlined, color: Colors.deepPurple),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'تحديث حالة المعلم',
+                onPressed: () => _updateTeacherStatus(teacher),
+                icon: const Icon(
+                  Icons.manage_history_outlined,
+                  color: Colors.orange,
+                ),
+              ),
+              IconButton(
+                tooltip: 'تعديل بيانات المعلم',
+                onPressed: () async {
+                  final changed = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => EditTeacherScreen(
+                        token: widget.token,
+                        schoolId: widget.schoolId,
+                        teacherId: id,
+                      ),
+                    ),
+                  );
+                  if (changed == true) await _loadTeachers();
+                },
+                icon: const Icon(
+                  Icons.edit_outlined,
+                  color: Colors.deepPurple,
+                ),
+              ),
             ],
           ),
         ),
