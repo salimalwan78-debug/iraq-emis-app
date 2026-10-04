@@ -3,6 +3,7 @@ import 'student_management_screen.dart';
 import 'teachers_list_screen.dart';
 import 'settings_screen.dart';
 import 'app_core.dart';
+import 'grades_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   final String token;
@@ -107,7 +108,7 @@ class DashboardScreen extends StatelessWidget {
                     _buildMenuCard(title: 'إدارة المعلمين', icon: Icons.work_rounded, color: Colors.deepPurple, cardColor: cardColor, textColor: textColor, onTap: () {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => TeachersListScreen(token: token, schoolId: schoolId, initialTeachers: allTeachers)));
                     }),
-                    _buildMenuCard(title: 'الدرجات', icon: Icons.bar_chart_rounded, color: Colors.orange, cardColor: cardColor, textColor: textColor, onTap: () {}),
+                    _buildMenuCard(title: 'الدرجات', icon: Icons.bar_chart_rounded, color: Colors.orange, cardColor: cardColor, textColor: textColor, onTap: () { Navigator.push(context, MaterialPageRoute(builder: (_) => GradesScreen(token: token, schoolId: schoolId))); }),
                     _buildMenuCard(title: 'إرسال البيانات', icon: Icons.cloud_upload_rounded, color: Colors.green, cardColor: cardColor, textColor: textColor, onTap: () {}),
                   ],
                 ),

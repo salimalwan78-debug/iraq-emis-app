@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'aa_removal_tool_screen.dart';
 import 'batch_student_photos_screen.dart';
 import 'app_core.dart';
+import 'student_distribution_screen.dart';
+import 'student_stage_transfer_screen.dart';
 
 class SmartToolsScreen extends StatelessWidget {
   final String token;
@@ -112,6 +114,28 @@ class SmartToolsScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+              ),
+              const SizedBox(height: 15),
+              _buildToolCard(
+                context,
+                title: 'توزيع الطلاب على الشُعَب',
+                subtitle: 'اختر الصف ثم الشعبة المستهدفة وحدد مجموعة الطلاب لتنفيذ التوزيع.',
+                icon: Icons.groups_2_outlined,
+                color: Colors.green,
+                cardColor: cardColor,
+                textColor: textColor,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StudentDistributionScreen(token: token, schoolId: schoolId, allStudents: allStudents))),
+              ),
+              const SizedBox(height: 15),
+              _buildToolCard(
+                context,
+                title: 'ترحيل الطلاب بين الصفوف',
+                subtitle: 'اختر الصف الحالي والصف المستهدف ثم حدد الطلاب المراد ترحيلهم.',
+                icon: Icons.move_up_outlined,
+                color: Colors.deepOrange,
+                cardColor: cardColor,
+                textColor: textColor,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StudentStageTransferScreen(token: token, schoolId: schoolId, allStudents: allStudents))),
               ),
               const SizedBox(height: 15),
               _buildToolCard(
