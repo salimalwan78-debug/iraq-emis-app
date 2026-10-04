@@ -92,7 +92,7 @@ class _DeactivatedStudentsScreenState extends State<DeactivatedStudentsScreen> {
           if (error != null) Text(error!, style: const TextStyle(color: Colors.red), textDirection: TextDirection.rtl),
           if (loading) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()))
           else if (filtered.isEmpty) const Padding(padding: EdgeInsets.all(30), child: Center(child: Text('لا يوجد طلبة غير مفعلين')))
-          else ...filtered.map((s) => Card(margin: const EdgeInsets.only(bottom: 9), child: ListTile(textDirection: TextDirection.rtl, title: Text(name(s), textDirection: TextDirection.rtl), subtitle: Text('رقم الطالب: ${s['id'] ?? ''}', textDirection: TextDirection.rtl), leading: const Icon(Icons.person_off, color: Colors.redAccent), trailing: IconButton(onPressed: () => _activateStudent(s), icon: const Icon(Icons.person_add_alt_1, color: Colors.green), tooltip: 'تفعيل الطالب')))),
+          else ...filtered.map((s) => Card(margin: const EdgeInsets.only(bottom: 9), child: Directionality(textDirection: TextDirection.rtl, child: ListTile(title: Text(name(s)), subtitle: Text('رقم الطالب: ${s['id'] ?? ''}'), leading: const Icon(Icons.person_off, color: Colors.redAccent), trailing: IconButton(onPressed: () => _activateStudent(s), icon: const Icon(Icons.person_add_alt_1, color: Colors.green), tooltip: 'تفعيل الطالب'))))),
         ]),
       ),
     );

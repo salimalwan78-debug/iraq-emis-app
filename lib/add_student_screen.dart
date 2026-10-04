@@ -29,7 +29,8 @@ class _AddStudentScreenState extends State<AddStudentScreen> {
     super.initState();
     for (final k in [
       'name','fatherName','grandFatherName','fathersGrandFatherName','surName',
-      'motherName','dateOfBirth','nationality','homeTown','nationalId'
+      'motherName','dateOfBirth','nationality','homeTown','nationalId',
+      'gender','countryOfBirth','idType'
     ]) c[k] = TextEditingController();
     c['nationality']!.text = 'العراق';
     _load();
