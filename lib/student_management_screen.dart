@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'select_student_screen.dart';
 import 'app_core.dart';
 import 'smart_tools_screen.dart';
+import 'add_student_screen.dart';
+import 'deactivated_students_screen.dart';
 
 class StudentManagementScreen extends StatelessWidget {
   final String token;
@@ -31,7 +33,17 @@ class StudentManagementScreen extends StatelessWidget {
                   Navigator.push(context, MaterialPageRoute(builder: (context) => SmartToolsScreen(token: token, schoolId: schoolId, allStudents: allStudents)));
                 }),
                 const SizedBox(height: 15),
-                _buildCard(context, 'إضافة طالب جديد', 'إضافة سجل طالب جديد كلياً للمدرسة', Icons.person_add, Colors.green, isDark, () {}),
+                _buildCard(context, 'إضافة طالب جديد', 'إضافة سجل طالب جديد كلياً للمدرسة', Icons.person_add, Colors.green, isDark, () async {
+                  final changed = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(builder: (_) => AddStudentScreen(token: token, schoolId: schoolId)),
+                  );
+                  if (changed == true && context.mounted) Navigator.pop(context, true);
+                }),
+                const SizedBox(height: 15),
+                _buildCard(context, 'الطلبة غير المفعلين', 'عرض الطلبة الذين تم تعطيلهم وإمكانية تفعيلهم', Icons.person_off, Colors.redAccent, isDark, () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => DeactivatedStudentsScreen(token: token, schoolId: schoolId)));
+                }),
               ],
             ),
           ),

@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'edit_teacher_screen.dart';
 import 'teacher_smart_tools_screen.dart';
+import 'add_teacher_screen.dart';
 
 class TeachersListScreen extends StatefulWidget {
   final String token;
@@ -338,6 +339,19 @@ class _TeachersListScreenState extends State<TeachersListScreen> {
         backgroundColor: const Color(0xFF4527A0),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          IconButton(
+            tooltip: 'إضافة معلم جديد',
+            icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
+            onPressed: () async {
+              final changed = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AddTeacherScreen(token: widget.token, schoolId: widget.schoolId),
+                ),
+              );
+              if (changed == true) await _loadTeachers();
+            },
+          ),
           IconButton(
             tooltip: 'تحديث',
             onPressed: _loading ? null : _loadTeachers,

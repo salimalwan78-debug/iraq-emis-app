@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import 'app_core.dart';
 import 'edit_student_screen.dart';
+import 'add_student_screen.dart';
 
 class SelectStudentScreen extends StatefulWidget {
   final String token;
@@ -121,6 +123,19 @@ class _SelectStudentScreenState extends State<SelectStudentScreen> {
               ),
             ),
             iconTheme: const IconThemeData(color: Colors.white),
+            actions: [
+              IconButton(
+                tooltip: 'إضافة طالب جديد',
+                icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
+                onPressed: () async {
+                  final changed = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(builder: (_) => AddStudentScreen(token: widget.token, schoolId: widget.schoolId)),
+                  );
+                  if (changed == true && mounted) setState(() {});
+                },
+              ),
+            ],
           ),
           body: RefreshIndicator(
             onRefresh: () async {
@@ -277,6 +292,11 @@ class _SelectStudentScreenState extends State<SelectStudentScreen> {
               ),
               const SizedBox(width: 8),
               IconButton(
+                tooltip: 'تعطيل الطالب',
+                onPressed: () => _deactivateStudent(student),
+                icon: const Icon(Icons.person_off_outlined, color: Colors.redAccent),
+              ),
+              IconButton(
                 tooltip: 'تعديل بيانات الطالب',
                 onPressed: () => _openStudent(student),
                 icon: const Icon(Icons.edit_outlined, color: Colors.indigo),
@@ -286,6 +306,50 @@ class _SelectStudentScreenState extends State<SelectStudentScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _deactivateStudent(Map<String, dynamic> student) async {
+    final id = student['id'];
+    if (id == null) return;
+    final name = _studentName(student);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعطيل الطالب', textDirection: TextDirection.rtl),
+        content: Text('هل أنت متأكد من تعطيل الطالب $name؟', textDirection: TextDirection.rtl),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.person_off),
+            label: const Text('تعطيل'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final candidates = [
+      Uri.parse('https://emis.moedu.gov.iq/api/student/deactivate/$id'),
+      Uri.parse('https://emis.moedu.gov.iq/api/student/deactivatestudent/$id'),
+    ];
+    String? error;
+    for (final uri in candidates) {
+      try {
+        final response = await http.post(uri, headers: {'Authorization': widget.token, 'Accept': 'application/json'});
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          if (!mounted) return;
+          setState(() => _allStudents.removeWhere((x) => '${x['id']}' == '$id'));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تعطيل الطالب بنجاح'), backgroundColor: Colors.green));
+          return;
+        }
+        error = 'HTTP ${response.statusCode}: ${response.body}';
+        if (response.statusCode != 404 && response.statusCode != 405) break;
+      } catch (e) {
+        error = '$e';
+      }
+    }
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل تعطيل الطالب${error == null ? '' : ': $error'}'), backgroundColor: Colors.red));
   }
 
   Widget _chip(String label, Color color) {
